@@ -17,4 +17,5 @@ setup(
     install_requires=[[r.strip() for r in
                        open("requirements.txt").readlines()]],
     python_requires=">=3.6",
+    include_package_data=True
 )
