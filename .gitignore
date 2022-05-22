@@ -1,0 +1,12 @@
+__pycache__
+/**/__pycache__
+
+venv
+
+log
+/**/log
+
+.idea
+kb_package/crawler/drivers/*/drivers/
+geckodriver.log
+/**/geckodriver.log

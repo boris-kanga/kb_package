@@ -1,0 +1,47 @@
+{
+  "country": "fr",
+  "headers": [
+    {
+      "name": "user-agent",
+      "value": "random_desktop"
+    }
+  ],
+  "port": 24000,
+  "rules": [
+    {
+      "action": {
+        "refresh_ip": true,
+        "retry": true
+      },
+      "action_type": "refresh_ip",
+      "status": "403",
+      "trigger_type": "status"
+    },
+    {
+      "action": {
+        "ban_ip_global": 0
+      },
+      "action_type": "ban_ip_global",
+      "status": "403",
+      "trigger_type": "status"
+    },
+    {
+      "action": {
+        "null_response": true
+      },
+      "action_type": "null_response",
+      "trigger_type": "url",
+      "url": "\\.(png|jpg|jpeg|svg|gif|mp3|mp4|avi)(#.*|\\?.*)?$"
+    },
+    {
+      "action": {
+        "retry": 3
+      },
+      "action_type": "retry",
+      "status": "(4|5)..",
+      "trigger_type": "status"
+    }
+  ],
+  "ssl": true,
+  "zone": "datacenter"
+}

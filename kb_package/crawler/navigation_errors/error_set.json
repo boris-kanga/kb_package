@@ -1,0 +1,71 @@
+[
+  {
+    "code": 400,
+    "comment": "Request had bad syntax or was impossible to fulfill",
+    "html": "Bad Request",
+    "level": 2
+  },
+  {
+    "code": 401,
+    "comment": "User failed to provide a valid user name/password required for access to a file/directory",
+    "html": "Unauthorized",
+    "level": 5
+  },
+  {
+    "code": 403,
+    "comment": "Request does not specify the file name, or the directory or the file does not have the permission that allows the pages to be viewed from the web ",
+    "html": "Forbidden",
+    "level": 5
+  },
+  {
+    "code": 404,
+    "comment": "Requested file was not found",
+    "html": "Not Found",
+    "level": 4
+  },
+  {
+    "code": 407,
+    "comment": "",
+    "html": "Proxy Authentication Required",
+    "level": 5
+  },
+  {
+    "alias": "has timed out",
+    "code": 408,
+    "comment": "",
+    "html": "Request Time-Out",
+    "level": 1
+  },
+  {
+    "code": 500,
+    "comment": "In most cases, this error results from a problem with the code or program you are calling rather than with the web server itself.",
+    "html": "Server Error",
+    "level": 2
+  },
+  {
+    "alias": "Proxy Error",
+    "code": 502,
+    "comment": "",
+    "html": "Bad Gateway",
+    "level": 2
+  },
+  {
+    "alias": "Service surcharg\u00e9",
+    "code": 503,
+    "comment": "Server cannot process the request due to a system overload; should be a temporary condition",
+    "html": "Service Unavailable",
+    "level": 3
+  },
+  {
+    "code": 504,
+    "comment": "Waiting time for a response from a server to an intermediate server has elapsed",
+    "html": "Gateway Time-out",
+    "level": 2
+  },
+  {
+    "code": null,
+    "comment": "",
+    "html": "Objet non disponible",
+    "level": 3
+  }
+]

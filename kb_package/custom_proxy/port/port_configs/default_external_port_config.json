@@ -1,0 +1,31 @@
+{
+  "ext_proxies": [],
+  "headers": [
+    {
+      "name": "user-agent",
+      "value": "random_desktop"
+    }
+  ],
+  "port": 24026,
+  "preset": "rotating",
+  "rotate_session": true,
+  "rules": [
+    {
+      "action": {
+        "null_response": true
+      },
+      "action_type": "null_response",
+      "trigger_type": "url",
+      "url": "\\.(png|jpg|jpeg|svg|mp3|mp4|avi|gif)(#.*|\\?.*)?$"
+    },
+    {
+      "action": {
+        "retry": 3
+      },
+      "action_type": "retry",
+      "status": "(4|5)..",
+      "trigger_type": "status"
+    }
+  ],
+  "ssl": true
+}

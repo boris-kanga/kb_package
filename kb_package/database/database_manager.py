@@ -1,0 +1,29 @@
+import importlib
+
+
+class DatabaseManager:
+    MYSQL = "mysql"
+    MONGO = "mongo"
+    POSTGRES = "postgres"
+
+    def __init__(self, db_type: str = "mysql", uri=None, **kwargs):
+        name = ("." if __package__ else "") + db_type.lower() + "db"
+
+        module = importlib.import_module(name,
+                                         package=__package__)
+        db_class = getattr(module, db_type.capitalize() + "DB")
+
+        assert db_class, "Don't find"
+        self.db_object = db_class(uri, **kwargs)
+
+    def __getattr__(self, item):
+        return getattr(self.db_object, item)
+
+
+if __name__ == '__main__':
+    uri = "postgres://lzzczmkaldakxe:cec000295de8a66be768571" \
+          "c3226e38077f4f996ecb4b8f94fc30be727d23241@ec2-54-172-175-" \
+          "251.compute-1.amazonaws.com:5432/d5cl4si7lr3ucn"
+
+    model = DatabaseManager(DatabaseManager.POSTGRES, uri)
+    print(model.get_cursor())
