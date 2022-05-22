@@ -1,10 +1,11 @@
 from hashlib import blake2b
 from hmac import compare_digest
+import os
 
 
 class CAuth:
-    AUTH_SIZE = 16
-    SECRET_KEY = "Secret-key"
+    AUTH_SIZE = os.environ.get("CAUTH-AUTH_SIZE", 16)
+    SECRET_KEY = os.environ.get("CAUTH-SECRET_KEY", "your-secret-key")
 
     def __init__(self, message):
         self.message = message
