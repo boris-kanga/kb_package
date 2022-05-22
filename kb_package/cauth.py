@@ -4,7 +4,7 @@ from hmac import compare_digest
 
 class CAuth:
     AUTH_SIZE = 16
-    SECRET_KEY = "6M7;#:f8HF^66ps?"
+    SECRET_KEY = "Secret-key"
 
     def __init__(self, message):
         self.message = message
