@@ -51,8 +51,7 @@ class DriverManager:
         # calculation of option
         options = kwargs.get("driver_options", None)
         binary_location = kwargs.get("binary_location", None)
-        if binary_location is not None:
-            options.binary_location = binary_location
+
         options_class = getattr(
                 webdriver, self.NAME.capitalize() + "Options"
             )
@@ -77,5 +76,6 @@ class DriverManager:
         options.headless = headless
         # options.add_argument("--disable-extensions")
         # options.add_argument("--disable-infobars")
-
+        if binary_location is not None:
+            options.binary_location = binary_location
         return options
