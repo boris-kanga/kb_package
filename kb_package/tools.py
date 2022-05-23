@@ -15,6 +15,7 @@ import tarfile
 import traceback
 import zipfile
 from typing import Union
+import stat as stat_package
 
 
 def _init_infinite(self, s=1):
@@ -31,6 +32,11 @@ def add_query_string_to_url(url, params):
     except:
         traceback.print_exc()
     return ""
+
+
+def force_delete_file(action, name, exc):
+    os.chmod(name, stat_package.S_IWRITE)
+    os.remove(name)
 
 
 def safe_eval_math(calculation, params=None):
