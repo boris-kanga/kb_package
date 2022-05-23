@@ -159,6 +159,10 @@ def rename_file(path_to_last_file, new_name, absolute_new_name=False):
             new_name = os.path.join(
                 os.path.dirname(path_to_last_file), os.path.basename(new_name)
             )
+        try:
+            os.makedirs(os.path.dirname(new_name), exist_ok=True)
+        except (OSError, Exception):
+            pass
         os.rename(path_to_last_file, new_name)
         return new_name
 
@@ -448,8 +452,8 @@ class CustomDateTime:
         ms = current_time.microsecond
         return current_time.strftime(
             d_format +
-            (f"{sep}%H{sep}%M{sep}%S" if time_ else "")
-        ) + (f"{sep}{str(ms)[:3]:0>3}" if microsecond and time_ else "")
+            (f" %H:%M:%S" if time_ else "")
+        ) + (f":{str(ms)[:3]:0>3}" if microsecond and time_ else "")
 
     @classmethod
     def from_calculation(cls,

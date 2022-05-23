@@ -16,8 +16,9 @@ class GitManager:
         protocol = "https://"
         if self.user is not None and (self.token or self.pwd) is not None:
             protocol += f"{self.user}:{self.token or self.pwd}@"
+        url = f"{protocol}github.com/{repo_user}/{repo_name}.git"
         Repo.clone_from(
-            url=f"{protocol}github.com/{repo_user}/{repo_name}.git",
+            url=url,
             to_path=dst)
 
         return True
@@ -27,8 +28,8 @@ if __name__ == '__main__':
     tok = ""
 
     GitManager(user="boris-kanga",
-               token="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"
+               token="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"
                ).clone(
-        "personal-job",
-        dst=r"C:\Users\kanga\OneDrive\CVs"
+        "kb_package",
+        dst=r"C:\Users\kanga\OneDrive\MY-CLOUD\DOSSIER_TRAVAIL\OWN\kb_package"
     )
