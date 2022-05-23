@@ -25,11 +25,15 @@ class GitManager:
 
 
 if __name__ == '__main__':
-    tok = ""
+    tok = "token"
+    git_user = "user"
+    repo = "repo"
 
-    GitManager(user="boris-kanga",
-               token="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"
+    dst = os.getcwd()
+
+    GitManager(user=git_user,
+               token=tok
                ).clone(
-        "kb_package",
-        dst=r"C:\Users\kanga\OneDrive\MY-CLOUD\DOSSIER_TRAVAIL\OWN\kb_package"
+        repo,
+        dst=dst
     )
