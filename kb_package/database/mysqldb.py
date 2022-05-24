@@ -15,7 +15,7 @@ class MysqlDB(BaseDB):
     @staticmethod
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
-            port=BaseDB.DEFAULT_PORT, **kwargs
+            port=BaseDB.MYSQL_DEFAULT_PORT, **kwargs
     ) -> mysql.connector.MySQLConnection:
         """
         Making the connexion to the mysql database
