@@ -11,11 +11,20 @@ class BaseDB(abc.ABC):
     LAST_SQL_CODE_RUN = None
 
     def __init__(self, uri=None, **kwargs):
+        """
+            kwargs:
+                user: username
+                pwd | password: the connexion password
+                port: default 3306 (the MySQL default port)
+                host: default localhost
+
+
+        """
         if uri is None:
             uri = kwargs
         if isinstance(uri, dict):
             self.username = uri.get("user", "root")
-            self.password = uri.get("pwd", "")
+            self.password = uri.get("pwd", "") or uri.get("password", "")
             self.host = uri.get("host", "127.0.0.1")
             self.port = uri.get("port", self.DEFAULT_PORT)
             self.database_name = uri.get("db_name")
