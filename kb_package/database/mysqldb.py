@@ -15,7 +15,7 @@ class MysqlDB(BaseDB):
     @staticmethod
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
-            port=BaseDB.MYSQL_DEFAULT_PORT, **kwargs
+            port=3306, **kwargs
     ) -> mysql.connector.MySQLConnection:
         """
         Making the connexion to the mysql database
@@ -91,6 +91,8 @@ class MysqlDB(BaseDB):
             with self.get_cursor() as cursor:
                 try:
                     datas = MysqlDB._execute(cursor, script, params).fetchall()
-                except (mysql.connector.errors.ProgrammingError, Exception):
+                except (mysql.connector.errors.ProgrammingError,
+                        Exception) as ex:
+                    self.communicate_error(ex)
                     datas = None
             return datas

@@ -37,7 +37,22 @@ class BaseDB(abc.ABC):
             _, self.username, self.password, self.host, \
             self.port, self.database_name = res.groups()
 
+        self.communicate_info = print
+        self.communicate_error = print
+
         self.db_object = None
+
+    def set_logger(self, logger):
+        if hasattr(logger, "info"):
+            self.communicate_info = logger.info
+        if hasattr(logger, "error"):
+            self.communicate_info = logger.error
+        if hasattr(logger, "exception"):
+            self.communicate_info = logger.exception
+
+        if callable(logger):
+            self.communicate_info = logger
+            self.communicate_error = logger
 
     @staticmethod
     @abc.abstractmethod
@@ -147,9 +162,14 @@ class BaseDB(abc.ABC):
         """
         self.LAST_SQL_CODE_RUN = script
         cursor = self.get_cursor()
-        cursor = self._execute(cursor, script, params=params,
-                               ignore_error=ignore_error,
-                               connexion=self.db_object)
+        try:
+            cursor = self._execute(cursor, script, params=params,
+                                   ignore_error=False,
+                                   connexion=self.db_object)
+        except Exception as ex:
+            self.communicate_error(ex)
+            if not ignore_error:
+                raise Exception(ex)
         self.commit()
         if retrieve:
             return self.get_all_data_from_cursor(cursor, limit=limit)
