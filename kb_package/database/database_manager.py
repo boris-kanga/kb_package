@@ -7,6 +7,15 @@ class DatabaseManager:
     POSTGRES = "postgres"
 
     def __init__(self, db_type: str = "mysql", uri=None, **kwargs):
+        """
+            kwargs:
+                user: username
+                pwd | password: the connexion password
+                port: default 3306 (the MySQL default port)
+                host: default localhost
+
+
+        """
         name = ("." if __package__ else "") + db_type.lower() + "db"
 
         module = importlib.import_module(name,
