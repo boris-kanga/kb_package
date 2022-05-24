@@ -10,7 +10,7 @@ import traceback
 import pymongo
 
 from kb_package.database.where_clause import WhereClause
-from .basedb import BaseDB
+from kb_package.database.basedb import BaseDB
 from kb_package.tools import INFINITE
 
 

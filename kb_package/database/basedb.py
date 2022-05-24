@@ -22,6 +22,7 @@ class BaseDB(abc.ABC):
 
 
         """
+
         if uri is None:
             uri = kwargs
         if isinstance(uri, dict):

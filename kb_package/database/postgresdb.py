@@ -6,7 +6,7 @@ Use for run easily mysql requests
 
 import psycopg2
 from kb_package.tools import INFINITE
-from .basedb import BaseDB
+from kb_package.database.basedb import BaseDB
 
 
 class PostgresDB(BaseDB):

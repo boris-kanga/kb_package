@@ -7,7 +7,7 @@ import traceback
 
 import mysql.connector
 from kb_package.tools import INFINITE
-from .basedb import BaseDB
+from kb_package.database.basedb import BaseDB
 
 
 class MysqlDB(BaseDB):

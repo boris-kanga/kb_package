@@ -5,7 +5,7 @@ Use for run easily mysql requests
 """
 
 import sqlite3
-from .basedb import BaseDB
+from kb_package.database.basedb import BaseDB
 from kb_package.tools import INFINITE
 
 
