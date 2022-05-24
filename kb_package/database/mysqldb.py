@@ -34,7 +34,7 @@ class MysqlDB(BaseDB):
                 host=host, user=user, passwd=password, database=db_name,
                 port=port
             )
-        except Exception as ex:
+        except Exception:
             traceback.print_exc()
             raise Exception(
                 "Une erreur lors que la connexion à la base de donnée"
@@ -60,6 +60,7 @@ class MysqlDB(BaseDB):
             cursor.execute(script, params=params)
             return cursor
         except Exception as ex:
+            traceback.print_exc()
             if ignore_error:
                 return None
             raise Exception(ex)
@@ -97,6 +98,7 @@ class MysqlDB(BaseDB):
                     datas = MysqlDB._execute(cursor, script, params).fetchall()
                 except (mysql.connector.errors.ProgrammingError,
                         Exception) as ex:
+                    traceback.print_exc()
                     self.communicate_error(ex)
                     datas = None
             return datas

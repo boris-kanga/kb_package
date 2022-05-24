@@ -1,5 +1,7 @@
 import abc
 import re
+import traceback
+
 from kb_package.tools import INFINITE
 
 
@@ -167,6 +169,7 @@ class BaseDB(abc.ABC):
                                    ignore_error=False,
                                    connexion=self.db_object)
         except Exception as ex:
+            traceback.print_exc()
             self.communicate_error(ex)
             if not ignore_error:
                 raise Exception(ex)
