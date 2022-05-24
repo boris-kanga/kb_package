@@ -198,7 +198,7 @@ class MongoDB(BaseDB):
         data = []
         try:
             data = list(cursor)
-            if limit == INFINITE:
+            if limit.__class__ == INFINITE.__class__:
                 pass
             else:
                 data = data[:limit]

@@ -62,7 +62,7 @@ class SQLiteDB(BaseDB):
         data = []
         try:
             data = cursor.fetchall()
-            if limit == INFINITE:
+            if limit.__class__ == INFINITE.__class__:
                 pass
             else:
                 data = data[:limit]
