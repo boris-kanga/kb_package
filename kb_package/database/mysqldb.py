@@ -3,7 +3,7 @@
 The Mysql manager.
 Use for run easily mysql requests
 """
-
+import traceback
 
 import mysql.connector
 from kb_package.tools import INFINITE
@@ -35,9 +35,9 @@ class MysqlDB(BaseDB):
                 port=port
             )
         except Exception as ex:
+            traceback.print_exc()
             raise Exception(
-                "Une erreur lors que la connexion à la base de donnée: "
-                + str(ex)
+                "Une erreur lors que la connexion à la base de donnée"
             )
 
     def _cursor(self):
