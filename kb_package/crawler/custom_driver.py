@@ -428,6 +428,10 @@ class CustomDriver:
             for executable_path in driver_manager.generate_webdriver_exe(
                     n_version=n_version):
                 try:
+                    os.chmod(executable_path, 0o755)
+                except (PermissionError, Exception):
+                    pass
+                try:
                     return CustomDriver._get_driver(
                         options=options,
                         desired_capabilities=desired_capabilities,
