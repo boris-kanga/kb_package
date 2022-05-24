@@ -61,7 +61,11 @@ class SQLiteDB(BaseDB):
 
         data = []
         try:
-            data = cursor.fetchall()[:limit]
+            data = cursor.fetchall()
+            if limit == INFINITE:
+                pass
+            else:
+                data = data[:limit]
         except (Exception, sqlite3.ProgrammingError):
             pass
         if limit == 1 and len(data):

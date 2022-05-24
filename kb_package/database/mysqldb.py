@@ -69,7 +69,11 @@ class MysqlDB(BaseDB):
 
         data = []
         try:
-            data = cursor.fetchall()[:limit]
+            data = cursor.fetchall()
+            if limit == INFINITE:
+                pass
+            else:
+                data = data[:limit]
         except (Exception, mysql.connector.errors.ProgrammingError):
             pass
         if limit == 1 and len(data):

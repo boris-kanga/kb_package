@@ -197,7 +197,11 @@ class MongoDB(BaseDB):
 
         data = []
         try:
-            data = list(cursor)[:limit]
+            data = list(cursor)
+            if limit == INFINITE:
+                pass
+            else:
+                data = data[:limit]
         except (Exception, pymongo.cursor.RawBatchCursor):
             pass
         if limit == 1 and len(data):
