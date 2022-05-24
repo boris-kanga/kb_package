@@ -158,7 +158,7 @@ class MongoDB(BaseDB):
     @staticmethod
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
-            port=DEFAULT_PORT, filename=None
+            port=DEFAULT_PORT, **kwargs
     ) -> pymongo.MongoClient:
         """
         Making the connexion to the mongo database
@@ -168,7 +168,6 @@ class MongoDB(BaseDB):
             password: str, the password
             db_name
             port: int port
-            filename:
 
         Returns: pymongo.MongoClient, the connexion object reach
 

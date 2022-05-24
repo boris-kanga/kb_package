@@ -15,7 +15,7 @@ class PostgresDB(BaseDB):
     @staticmethod
     def connect(
         host="127.0.0.1", user="root", password="", db_name=None,
-            port=DEFAULT_PORT, file_name=None):
+            port=DEFAULT_PORT, **kwargs):
         """
         Making the connexion to the mysql database
         Args:
@@ -24,7 +24,6 @@ class PostgresDB(BaseDB):
             password: str, the password
             db_name: str, the database name
             port:
-            file_name:
 
         Returns:mysql.connector.MySQLConnection, the connexion object reach
 
