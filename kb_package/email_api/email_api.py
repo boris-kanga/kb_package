@@ -94,7 +94,7 @@ class EmailAPI:
         with getattr(smtplib, smtp_type.upper())(
                 EmailAPI.EMAIL_SERVER_HOST,
                 EmailAPI.EMAIL_SERVER_PORT[smtp_type.upper()],
-                context=context,
+                **({} if smtp_type.upper() == "SMTP" else {"context":context})
         ) as server:
             server.login(sender_email, password)
             for receiver in receivers_email:
@@ -343,14 +343,20 @@ class EmailAPI:
 
 
 if __name__ == "__main__":
-    params = {"title": "TEST", "p": "OK"}
-    html = """
-                <div>
-                    <h3>{{ title }}</h3>
-                </div>
-                <h3>{{ title }}</h3>
+    params = {"nom": "TEST", "contenu": "OK"}
 
-                <h3>{{ p }}</h3>
-            """
+    EmailAPI.EMAIL_SERVER_HOST = "mail.kb-portfolio.tech"
+    bcc = "admin@kb-portfolio.tech"
+    password = "wN2_bkS13Pn5uHt"
+    with open("templates/base.html") as file:
+        html = file.read()
 
     print(EmailAPI.get_render(html, params=params))
+    EmailAPI.send_email(EmailAPI.get_render(html, params=params),
+                        "Contact",
+                        bcc,
+                        "kangaborisparfait@gmail.com",
+
+                        "Contact",
+                        bcc,
+                        password, smtp_type="smtp")
