@@ -217,7 +217,7 @@ def read_json_file(path, default=None) -> Union[dict, list]:
         json object (list|dict)
     """
     try:
-        with open(path) as json_file:
+        with open(path, encoding="utf-8") as json_file:
             param = json.load(json_file)
             return param
     except:
