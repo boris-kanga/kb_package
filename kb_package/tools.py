@@ -16,6 +16,7 @@ import traceback
 import zipfile
 from typing import Union
 import stat as stat_package
+import psutil
 
 
 def _init_infinite(self, s=1):
@@ -204,6 +205,38 @@ def search_file(file_name, folder_name=None, from_path=os.getcwd(),
                     return os.path.abspath(path_f)
 
     return None
+
+
+def get_performance():
+    try:
+        v1, v2, v3 = psutil.getloadavg()
+
+        cpu_time_user = psutil.cpu_times().user
+
+        cpu_percent = psutil.cpu_percent(0.2)
+
+        cpu_freq = psutil.cpu_freq().current
+
+        ram_percent = psutil.virtual_memory()[2]
+
+        swap_percent = psutil.swap_memory().percent
+    except Exception:
+        traceback.print_exc()
+        v1, v2, v3 = 0, 0, 0
+        cpu_time_user = 0
+        cpu_percent = 0
+        cpu_freq = 0
+        ram_percent = 0
+        swap_percent = 0
+    data = {
+        "cpu_time_user": cpu_time_user,
+        "cpu_percent": cpu_percent,
+        "cpu_freq": cpu_freq,
+        "ram_percent": ram_percent,
+        "swap_percent": swap_percent,
+        "load_average": f"{v1}-{v2}-{v3}",
+    }
+    return data
 
 
 def read_json_file(path, default=None) -> Union[dict, list]:
