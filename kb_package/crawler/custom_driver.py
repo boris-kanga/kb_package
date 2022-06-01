@@ -68,6 +68,8 @@ class CustomDriver:
         return self._driver
 
     def __enter__(self):
+        if self._driver is None:
+            self.create()
         return self._driver
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -75,6 +77,7 @@ class CustomDriver:
             self._driver.close()
         except(AttributeError, Exception):
             pass
+        self._driver = None
 
     @staticmethod
     def download_using_link(link, file_name):
