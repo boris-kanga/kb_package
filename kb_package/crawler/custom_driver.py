@@ -67,6 +67,15 @@ class CustomDriver:
     def __call__(self, *args, **kwargs):
         return self._driver
 
+    def __enter__(self):
+        return self._driver
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self._driver.close()
+        except(AttributeError, Exception):
+            pass
+
     @staticmethod
     def download_using_link(link, file_name):
         os.makedirs(os.path.dirname(file_name), exist_ok=True)
