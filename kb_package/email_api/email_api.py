@@ -345,9 +345,9 @@ class EmailAPI:
 if __name__ == "__main__":
     params = {"nom": "TEST", "contenu": "OK"}
 
-    EmailAPI.EMAIL_SERVER_HOST = "mail.kb-portfolio.tech"
-    bcc = "admin@kb-portfolio.tech"
-    password = "wN2_bkS13Pn5uHt"
+    EmailAPI.EMAIL_SERVER_HOST = "<host>"
+    bcc = "<email_admin>"
+    password = "<password>"
     with open("templates/base.html") as file:
         html = file.read()
 
@@ -355,7 +355,7 @@ if __name__ == "__main__":
     EmailAPI.send_email(EmailAPI.get_render(html, params=params),
                         "Contact",
                         bcc,
-                        "kangaborisparfait@gmail.com",
+                        "<receiver>",
 
                         "Contact",
                         bcc,
