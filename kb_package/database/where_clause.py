@@ -37,7 +37,7 @@ class WhereClause:
         if isinstance(replace_value, str):
             replace_value = [replace_value]
         for r in replace_value:
-            res = re.findall(rf"({args}.*{r}.*{args})", str_statement)
+            res = re.findall(rf"({args}.*{r}.*{args})", str_statement, flags=re.S)
             for i in res:
                 replace_value = i.replace(r, r + additional_character)
                 str_statement = str_statement.replace(i, replace_value)
@@ -87,7 +87,8 @@ class WhereClause:
         )
         if str(str_statement).startswith("("):
             str_statement = "1 AND " + str_statement
-        # print(str_statement)
+        print(str_statement)
+        print(final_character)
         regex = re.compile(
             rf"(\s(?:and|or)\s+\((?!{final_character}))", flags=re.S | re.I
         )
@@ -101,8 +102,9 @@ class WhereClause:
         number_of_clone = 0
         my_strucs = []
         and_or = None
+        print('#', structures)
         for s in structures:
-            # print("--", s)
+            print("@", s)
             s_start = last_structure_pattern_start.match(s)
             if last_structure_pattern_end is not None:
                 # print("----"*10)
@@ -110,6 +112,7 @@ class WhereClause:
                     rf"(.*?)\)(?!{final_character})\s+(?:or|and)",
                     s, flags=re.S | re.I)
                 if len(s_end):
+                    print("------------end---------")
                     pass
                 else:
                     # s_end = last_structure_pattern_end.findall(s)
@@ -205,6 +208,8 @@ class WhereClause:
                 else:
                     # print("add--",s)
                     current_working_text += s
+
+        print(my_strucs)
         return my_strucs
 
     @staticmethod
@@ -325,18 +330,20 @@ class WhereClause:
 
 
 if __name__ == "__main__":
-    print(
-        WhereClause.parse_where_clause_to_mongo("""
-             
-			souscription.end_date >= 2
-                        AND purpose.activated = "Yes"
-                        AND (souscription.date_resil is NULL)
-                        AND souscription.booking = 1
-                        AND souscription.booked = 0
-                        AND souscription.processing = 1
-                        AND purpose.id_purpose = 156
-                        
-                        AND purpose.id_purpose>0
-                        AND souscription.email='vgryner@gmail.com'
-            """)
-    )
+    print(WhereClause.parse_where_clause_to_mongo("HHH>=3 and (HP=3 or H=3) or (hpp=3 or (a='HHH' or y='22')) and m=3"))
+    if False:
+        print(
+            WhereClause.parse_where_clause_to_mongo("""
+                 
+                souscription.end_date >= 2
+                            AND purpose.activated = "Yes"
+                            AND (souscription.date_resil is NULL)
+                            AND souscription.booking = 1
+                            AND souscription.booked = 0
+                            AND souscription.processing = 1
+                            AND purpose.id_purpose = 156
+                            
+                            AND purpose.id_purpose>0
+                            AND souscription.email='vgryner@gmail.com'
+                """)
+        )
