@@ -107,7 +107,7 @@ class BaseDB(abc.ABC):
 
     def insert(self, value, table_name, cur=None):
         part_vars = [str(k) for k in value.keys()]
-        value = [v.__repr__() if v is not None else "null" for v in value.values()]
+        value = [v if v is not None else "null" for v in value.values()]
         script = "INSERT INTO " + str(table_name) + \
                  " ( " + ",".join(part_vars) + \
                  ") VALUES ( " + ", ".join(self.prepare_insert_data(value)) + " ) "
