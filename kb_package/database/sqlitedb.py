@@ -33,7 +33,7 @@ class SQLiteDB(BaseDB):
             table_name = " FROM " + str(table_name)
         else:
             table_name = ""
-        return self.run_script("select last_insert_rowid()"+table_name, limit=1)
+        return self.run_script("select last_insert_rowid()"+table_name, limit=1)[0]
 
     def _cursor(self):
         return self.db_object.cursor()
