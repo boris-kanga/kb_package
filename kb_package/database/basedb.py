@@ -98,6 +98,9 @@ class BaseDB(abc.ABC):
     def _cursor(self):
         return None
 
+    def last_insert_rowid(self, table_name=None):
+        return 0
+
     @staticmethod
     def prepare_insert_data(data: list):
         return ["%s" for _ in data]

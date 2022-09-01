@@ -28,6 +28,13 @@ class SQLiteDB(BaseDB):
                 + str(ex)
             )
 
+    def last_insert_rowid(self, table_name=None):
+        if table_name is not None:
+            table_name = " FROM " + str(table_name)
+        else:
+            table_name = ""
+        return self.run_script("select last_insert_rowid()"+table_name, limit=1)
+
     def _cursor(self):
         return self.db_object.cursor()
 
