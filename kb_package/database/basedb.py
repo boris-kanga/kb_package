@@ -98,6 +98,32 @@ class BaseDB(abc.ABC):
     def _cursor(self):
         return None
 
+    @staticmethod
+    def prepare_insert_data(data: list):
+        return ["%s" for _ in data]
+
+    def insert(self, value, table_name, cur=None):
+        part_vars = [str(k) for k in value.keys()]
+        value = [v.__repr__() if v is not None else "null" for v in value.values()]
+        script = "INSERT INTO " + str(table_name) + \
+                 " ( " + ",".join(part_vars) + \
+                 ") VALUES ( " + ", ".join(self.prepare_insert_data(value)) + " ) "
+
+        if cur is None:
+            cursor = self.get_cursor()
+        else:
+            cursor = cur
+        self._execute(cursor, script, params=value)
+        if cur is None:
+            self.commit()
+        return cursor
+
+    def insert_many(self, data, table_name):
+        cursor = self.get_cursor()
+        for d in data:
+            self.insert(d, table_name, cursor)
+        self.commit()
+
     def get_cursor(self):
         """
         Get mysql cursor for making requests
@@ -170,10 +196,16 @@ class BaseDB(abc.ABC):
                                    ignore_error=False,
                                    connexion=self.db_object)
         except Exception as ex:
+            print("*"*10, "Got error when try to run", "*"*10)
+            print(self.LAST_SQL_CODE_RUN)
+            print("**"*10)
             traceback.print_exc()
             self.communicate_error(ex)
+
             if not ignore_error:
                 raise Exception(ex)
+
+
         self.commit()
         if retrieve:
             return self.get_all_data_from_cursor(cursor, limit=limit)
