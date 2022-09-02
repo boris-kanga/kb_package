@@ -1,6 +1,7 @@
 import abc
 import re
 import traceback
+import typing
 
 from kb_package.tools import INFINITE
 
@@ -98,14 +99,14 @@ class BaseDB(abc.ABC):
     def _cursor(self):
         return None
 
-    def last_insert_rowid(self, table_name=None):
-        return 0
+    def last_insert_rowid_logic(self, cursor=None, table_name=None):
+        return cursor
 
     @staticmethod
     def prepare_insert_data(data: list):
         return ["%s" for _ in data]
 
-    def insert(self, value, table_name, cur=None):
+    def insert(self, value, table_name, cur=None, retrieve_id=False):
         part_vars = [str(k) for k in value.keys()]
         value = [v if v is not None else "null" for v in value.values()]
         script = "INSERT INTO " + str(table_name) + \
@@ -116,10 +117,14 @@ class BaseDB(abc.ABC):
             cursor = self.get_cursor()
         else:
             cursor = cur
+        return_object = cursor
         self._execute(cursor, script, params=value)
+        if retrieve_id:
+            cursor = self.last_insert_rowid_logic(cursor, table_name)
+            return_object = self.get_all_data_from_cursor(cursor, limit=1)
         if cur is None:
             self.commit()
-        return cursor
+        return return_object
 
     def insert_many(self, data, table_name):
         cursor = self.get_cursor()
@@ -178,7 +183,7 @@ class BaseDB(abc.ABC):
     def get_all_data_from_cursor(cursor, limit=INFINITE):
         return []
 
-    def run_script(self, script, params=None, retrieve=True, limit=INFINITE,
+    def run_script(self, script: typing.Union[list, str], params=None, retrieve=True, limit=INFINITE,
                    ignore_error=False):
         """
         Run a specific sql file
@@ -195,19 +200,21 @@ class BaseDB(abc.ABC):
         self.LAST_SQL_CODE_RUN = script
         cursor = self.get_cursor()
         try:
-            cursor = self._execute(cursor, script, params=params,
-                                   ignore_error=False,
-                                   connexion=self.db_object)
+            if isinstance(script, str):
+                script = [script]
+            for s in script:
+                cursor = self._execute(cursor, s, params=params,
+                                       ignore_error=False,
+                                       connexion=self.db_object)
         except Exception as ex:
-            print("*"*10, "Got error when try to run", "*"*10)
+            print("*" * 10, "Got error when try to run", "*" * 10)
             print(self.LAST_SQL_CODE_RUN)
-            print("**"*10)
+            print("**" * 10)
             traceback.print_exc()
             self.communicate_error(ex)
 
             if not ignore_error:
                 raise Exception(ex)
-
 
         self.commit()
         if retrieve:
