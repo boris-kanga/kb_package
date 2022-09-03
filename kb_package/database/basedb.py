@@ -122,6 +122,8 @@ class BaseDB(abc.ABC):
         if retrieve_id:
             cursor = self.last_insert_rowid_logic(cursor, table_name)
             return_object = self.get_all_data_from_cursor(cursor, limit=1)
+            if isinstance(return_object, (list, tuple)):
+                return_object = 0 if not len(return_object) else return_object[0]
         if cur is None:
             self.commit()
         return return_object
