@@ -41,6 +41,8 @@ class BaseDB(abc.ABC):
             _, self.username, self.password, self.host, \
             self.port, self.database_name = res.groups()
 
+        self._kwargs = uri
+
         self.communicate_info = print
         self.communicate_error = print
 
@@ -62,7 +64,7 @@ class BaseDB(abc.ABC):
     @abc.abstractmethod
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
-            port=DEFAULT_PORT, file_name=None
+            port=DEFAULT_PORT, file_name=None, **kwargs
     ):
         """
         Making the connexion to the mysql database
@@ -92,7 +94,7 @@ class BaseDB(abc.ABC):
             user=self.username,
             password=self.password,
             db_name=self.database_name,
-            port=self.port, file_name=self.file_name
+            port=self.port, file_name=self.file_name, **self._kwargs
         )
 
     @abc.abstractmethod
