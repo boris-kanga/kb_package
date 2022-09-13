@@ -50,6 +50,7 @@ class BaseDB(abc.ABC):
         self._cursor_ = None
 
     def __enter__(self):
+        self.reload_connexion()
         self._cursor_ = self._cursor()
         return self._cursor_
 
