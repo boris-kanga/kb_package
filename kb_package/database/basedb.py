@@ -47,6 +47,18 @@ class BaseDB(abc.ABC):
         self.communicate_error = print
 
         self.db_object = None
+        self._cursor_ = None
+
+    def __enter__(self):
+        self._cursor_ = self._cursor()
+        return self._cursor_
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self._cursor_.close()
+        finally:
+            self._cursor_ = None
+            self.close_connection()
 
     def set_logger(self, logger):
         if hasattr(logger, "info"):
@@ -202,7 +214,10 @@ class BaseDB(abc.ABC):
 
         """
         self.LAST_SQL_CODE_RUN = script
-        cursor = self.get_cursor()
+        if self._cursor_ is not None:
+            cursor = self._cursor_
+        else:
+            cursor = self.get_cursor()
         try:
             if isinstance(script, str):
                 script = [script]
