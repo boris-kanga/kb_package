@@ -48,7 +48,7 @@ class PostgresDB(BaseDB):
         try:
             row = cursor.fetchone()
 
-            while row is not None and len(data)<limit:
+            while row is not None and len(data) < limit:
                 data.append(row)
                 row = cursor.fetchone()
         except (Exception, psycopg2.DatabaseError):

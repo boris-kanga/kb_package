@@ -70,11 +70,11 @@ class MysqlDB(BaseDB):
 
         data = []
         try:
-            data = cursor.fetchall()
-            if limit.__class__ == INFINITE.__class__:
-                pass
-            else:
-                data = data[:limit]
+            while len(data) < limit:
+                row = cursor.fetch()
+                if not row:
+                    break
+                data.append(row)
         except (Exception, mysql.connector.errors.ProgrammingError):
             pass
         if limit == 1 and len(data):

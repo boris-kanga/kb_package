@@ -10,7 +10,7 @@ class BaseDB(abc.ABC):
     MYSQL_DEFAULT_PORT = 3306
     DEFAULT_PORT = None
     REGEX_SPLIT_URI = re.compile(r"(\w+?)://([\w\-.]+):([\w\-.]+)@"
-                                 "([\w\-.]+):(\d+)(?:/([\w\-.]+))?")
+                                 r"([\w\-.]+):(\d+)(?:/([\w\-.]+))?")
     LAST_SQL_CODE_RUN = None
 
     def __init__(self, uri=None, **kwargs):
@@ -39,7 +39,7 @@ class BaseDB(abc.ABC):
             if not res:
                 raise ValueError("Got bad uri")
             _, self.username, self.password, self.host, \
-            self.port, self.database_name = res.groups()
+                self.port, self.database_name = res.groups()
 
         self._kwargs = uri
 
@@ -129,7 +129,10 @@ class BaseDB(abc.ABC):
                  ") VALUES ( " + ", ".join(self.prepare_insert_data(value)) + " ) "
 
         if cur is None:
-            cursor = self.get_cursor()
+            if self._cursor_:
+                cursor = self._cursor_
+            else:
+                cursor = self.get_cursor()
         else:
             cursor = cur
         return_object = cursor
@@ -139,12 +142,15 @@ class BaseDB(abc.ABC):
             return_object = self.get_all_data_from_cursor(cursor, limit=1)
             if isinstance(return_object, (list, tuple)):
                 return_object = 0 if not len(return_object) else return_object[0]
-        if cur is None:
+        if cur is None and not self._cursor_:
             self.commit()
         return return_object
 
     def insert_many(self, data, table_name):
-        cursor = self.get_cursor()
+        if self._cursor_:
+            cursor = self._cursor_
+        else:
+            cursor = self.get_cursor()
         for d in data:
             self.insert(d, table_name, cursor)
         self.commit()
