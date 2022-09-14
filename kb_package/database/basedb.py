@@ -43,6 +43,14 @@ class BaseDB(abc.ABC):
 
         self._kwargs = uri
 
+        self._kwargs.update({
+            "host": self.host,
+            "user": self.username,
+            "password": self.password,
+            "db_name": self.database_name,
+            "port": self.port, "file_name": self.file_name
+        })
+
         self.communicate_info = print
         self.communicate_error = print
 
@@ -102,13 +110,7 @@ class BaseDB(abc.ABC):
 
         """
         self.close_connection()
-        self.db_object = self.connect(
-            host=self.host,
-            user=self.username,
-            password=self.password,
-            db_name=self.database_name,
-            port=self.port, file_name=self.file_name, **self._kwargs
-        )
+        self.db_object = self.connect(**self._kwargs)
 
     @abc.abstractmethod
     def _cursor(self):
