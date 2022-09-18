@@ -3,7 +3,11 @@ import re
 import traceback
 import typing
 
+from pandas.core.dtypes.common import is_numeric_dtype, is_object_dtype
+
 from kb_package.tools import INFINITE
+import os
+from kb_package import tools
 
 
 class BaseDB(abc.ABC):
@@ -32,10 +36,10 @@ class BaseDB(abc.ABC):
             self.host = uri.get("host", "127.0.0.1")
             self.port = uri.get("port", self.DEFAULT_PORT)
             self.database_name = uri.get("db_name")
-            self.file_name = uri.get("file_name", ":memory")
+            self.file_name = uri.get("file_name") or ":memory:"
         else:
             res = re.match(self.REGEX_SPLIT_URI, uri)
-            self.file_name = None
+            self.file_name = ":memory:"
             if not res:
                 raise ValueError("Got bad uri")
             _, self.username, self.password, self.host, \
@@ -205,11 +209,11 @@ class BaseDB(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE):
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
         return []
 
     def run_script(self, script: typing.Union[list, str], params=None, retrieve=True, limit=INFINITE,
-                   ignore_error=False):
+                   ignore_error=False, dict_res=False):
         """
         Run a specific sql file
         Args:
@@ -217,7 +221,8 @@ class BaseDB(abc.ABC):
             params: list|tuple|dict, params for the mysql prepared requests
             retrieve: bool, for select requests;
             limit: int nb of data to retrieve if retrieve
-            ignore_error:
+            ignore_error: to ignore or raise error if an error happened
+            dict_res: bool, return result as dict args
 
         Returns: data results if retrieve
 
@@ -246,4 +251,50 @@ class BaseDB(abc.ABC):
 
         self.commit()
         if retrieve:
-            return self.get_all_data_from_cursor(cursor, limit=limit)
+            return self.get_all_data_from_cursor(cursor, limit=limit, dict_res=dict_res)
+
+    @staticmethod
+    def get_add_increment_field_code(field_name="id"):
+        return str(field_name or "id") + " INTEGER PRIMARY KEY AUTOINCREMENT"
+
+    def create_table(self, arg: str, table_name=None, auto_increment_field=False, auto_increment_field_name=None):
+        with self:
+            if os.path.exists(arg):
+                dataset = tools.read_datafile(arg)
+                if not len(dataset.columns):
+                    return
+                table_name = tools.format_var_name(table_name or "new_table")
+                table_script = f"CREATE TABLE IF NOT EXISTS {table_name}("
+                if auto_increment_field:
+                    table_script += "\n\t"+self.get_add_increment_field_code(auto_increment_field_name) + ","
+                equivalent = {}
+                for index, col in enumerate(dataset.columns):
+                    field = tools.format_var_name(col)
+                    equivalent[col] = field
+                    if index > 0:
+                        table_script += ","
+                    if is_numeric_dtype(dataset[col]):
+                        table_script += f"\n\t{field} int"
+                    elif is_object_dtype(dataset[col]):
+                        size = dataset[col].apply(lambda x: len(x)).max()
+                        if size > 1024 * 1024:
+                            type_ = 'text'
+                        else:
+                            type_ = f"varchar({size or 255})"
+                        table_script += f"\n\t{field} {type_}"
+                table_script += "\n)"
+                print(table_script)
+                self.run_script(table_script, retrieve=False)
+                data = []
+                max_buffer_size = 200
+                for _, row in dataset.iterrows():
+                    data.append({field: row[col] for col, field in equivalent.items()})
+                    if len(data) >= max_buffer_size:
+                        self.insert_many(data, table_name=table_name)
+                        data = []
+                print("Finish")
+            else:
+                self.run_script(arg)
+
+    def dump(self, dump_file='dump.sql'):
+        pass

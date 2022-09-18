@@ -16,7 +16,10 @@ import traceback
 import zipfile
 from typing import Union
 import stat as stat_package
+
+import pandas
 import psutil
+import stat
 
 
 def _init_infinite(self, s=1):
@@ -92,6 +95,35 @@ _infinite_methods.update(
 )
 
 INFINITE = type("Infinite", (float,), _infinite_methods)()
+
+
+def read_datafile(file_path, drop_duplicates=False, drop_duplicates_on=None):
+    if bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN):
+        dataset = pandas.DataFrame()
+    elif os.path.splitext(file_path)[1][1:].lower() in ["xls", "xlsx", "xlsm", "xlsb"]:
+        dataset = pandas.read_excel(file_path)
+    else:
+        with open(file_path, encoding='latin1') as file:
+            if ";" in file.readline():
+                dataset = pandas.read_csv(file_path, sep=";", encoding='latin1')
+            else:
+                dataset = pandas.read_csv(file_path, encoding='latin1')
+
+    if drop_duplicates:
+
+        drop_duplicates_on = ([drop_duplicates_on]
+                              if isinstance(drop_duplicates_on, str)
+                              else drop_duplicates_on)
+        drop_duplicates_on = dataset.columns.intersection(drop_duplicates_on)
+        if drop_duplicates_on.shape[0]:
+            dataset.drop_duplicates(inplace=True,
+                                    subset=drop_duplicates_on, ignore_index=True)
+    return dataset
+
+
+def format_var_name(name):
+    name = "_".join([p for p in re.sub(r'[^ a-zA-Z\d_]', '', str(name)).strip().lower().split(" ") if p])
+    return name[1:] if name.startswith("_") else name
 
 
 def extract_file(path, member=None, to_directory='.', file_type=None):

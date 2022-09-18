@@ -42,7 +42,7 @@ class PostgresDB(BaseDB):
         return self.db_object.cursor()
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE):
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
 
         data = []
         try:
@@ -84,4 +84,6 @@ class PostgresDB(BaseDB):
                 return None
             raise Exception(ex)
 
-
+    @staticmethod
+    def get_add_increment_field_code(field_name="id"):
+        return str(field_name or "id") + " SERIAL PRIMARY KEY"

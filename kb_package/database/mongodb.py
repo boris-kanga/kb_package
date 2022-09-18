@@ -193,7 +193,7 @@ class MongoDB(BaseDB):
         return self.db_object[self.database_name]
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE):
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
 
         data = []
         try:
@@ -232,6 +232,9 @@ class MongoDB(BaseDB):
             if ignore_error:
                 return None
             raise Exception(ex)
+
+    def create_table(self, arg: str, table_name=None, auto_increment_field=False, auto_increment_field_name=None):
+        pass
 
 
 if __name__ == "__main__":

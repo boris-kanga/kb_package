@@ -70,8 +70,10 @@ class SQLiteDB(BaseDB):
             raise Exception(ex)
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE):
-
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
+        if dict_res:
+            columns = [col[0] for col in cursor.description]
+            cursor.row_factory = lambda *args: dict(zip(columns, args[1]))
         data = []
         try:
             data = cursor.fetchall()
@@ -89,87 +91,15 @@ class SQLiteDB(BaseDB):
     def prepare_insert_data(data: list):
         return ["?" for _ in data]
 
+    def dump(self, dump_file='dump.sql'):
+        self.reload_connexion()
+        with open(dump_file, 'w') as f:
+            for line in self.db_object.iterdump():
+                f.write('%s\n' % line)
+
 
 if __name__ == '__main__':
-    import os
-    from kb_package.tools import read_json_file
-    import json
-    DATABASE_FOLDER = r"C:\Users\FBYZ6263\Documents\WORK_FOLDER\CVM\Push SMS\Databases"
-    RECENT_DATA_FOLDER = os.path.join(DATABASE_FOLDER, "recent")
-    PATH = r"C:\Users\FBYZ6263\Documents\WORK_FOLDER\CVM\Push SMS\pywork"
-    CONFIG_PATH = os.path.join(PATH, "config")
-    DB_PATH = os.path.join(CONFIG_PATH, "db.json")
-    PLANNING_PATH = os.path.join(CONFIG_PATH, "planning.json")
-    SQLITE_DB = os.path.join(CONFIG_PATH, "database.db")
+    db_object = SQLiteDB(file_name=None)
 
-    def _get_database_files():
-        db_files = read_json_file(DB_PATH, [])
-
-        last_file_in_database = [d["name"].lower() for d in db_files
-                                 if d.get("folder", "").lower() == DATABASE_FOLDER.lower()]
-
-        try:
-            max_id = max([d["id"] for d in db_files])
-        except ValueError:
-            max_id = 0
-
-        for index, file in enumerate(os.listdir(DATABASE_FOLDER)):
-            if os.path.isdir(os.path.join(DATABASE_FOLDER, file)):
-                continue
-            if file.lower() in last_file_in_database:
-                continue
-            db_files.append(
-                {
-                    "id": max_id + index,
-                    "source": os.path.join(DATABASE_FOLDER, file),
-                    "folder": DATABASE_FOLDER,
-                    "name": file,
-                    "type": os.path.splitext(file)[1][1:],
-                    "operations": []
-                })
-        with open(DB_PATH, "w") as config:
-            config.writelines(json.dumps(db_files, indent=4))
-        return db_files
-    db_object = SQLiteDB(file_name=SQLITE_DB)
-    db_object.run_script("""
-            create table if not exists file_object(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source text,
-                folder text,
-                filename varchar(1000),
-                `type` varchar(10),
-                modification_date date,
-                operations text
-            );""")
-    db_object.run_script("""
-            create table if not exists campaign(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name text,
-                max_size int
-            );
-""")
-    db_object.run_script("""
-            create table if not exists day_plan(
-                day date PRIMARY KEY,
-                day_nb int,
-                weekday_str varchar(15)            
-            );
-            """)
-    db_object.run_script("""
-            create table if not exists plan(
-                day_date date REFERENCES day_plan(day) ON DELETE CASCADE,
-                file_id INT REFERENCES file_object(id) ON DELETE CASCADE,
-                filename varchar(1000),
-                `select` text,
-                names text         
-            );    
-        """)
-    print("*"*100)
-    data = []
-    for f in _get_database_files():
-        f.pop("id")
-        f["filename"] = f.pop("name")
-        f["operations"] = json.dumps(f["operations"])
-        data.append(f)
-    print(data)
-    db_object.insert_many(data, "file_object")
+    db_object.create_table(r"C:\Users\FBYZ6263\Downloads\LISTE PUSH OFFRE CABINE 310822.xlsx",
+                           auto_increment_field=True)
