@@ -38,12 +38,20 @@ class BaseDB(abc.ABC):
             self.database_name = uri.get("db_name")
             self.file_name = uri.get("file_name") or ":memory:"
         else:
-            res = re.match(self.REGEX_SPLIT_URI, uri)
-            self.file_name = ":memory:"
-            if not res:
-                raise ValueError("Got bad uri")
-            _, self.username, self.password, self.host, \
-                self.port, self.database_name = res.groups()
+            assert isinstance(uri, str), "Bad URI value given"
+            if os.path.exists(uri):
+                self.file_name = uri
+                self.username, self.password, self.host, \
+                    self.port, self.database_name = None, None, None, None, None
+
+            else:
+                res = re.match(self.REGEX_SPLIT_URI, uri)
+                self.file_name = ":memory:"
+                if not res:
+                    raise ValueError("Got bad uri")
+                _, self.username, self.password, self.host, \
+                    self.port, self.database_name = res.groups()
+            uri = {}
 
         self._kwargs = uri
 
@@ -266,7 +274,7 @@ class BaseDB(abc.ABC):
                 table_name = tools.format_var_name(table_name or "new_table")
                 table_script = f"CREATE TABLE IF NOT EXISTS {table_name}("
                 if auto_increment_field:
-                    table_script += "\n\t"+self.get_add_increment_field_code(auto_increment_field_name) + ","
+                    table_script += "\n\t" + self.get_add_increment_field_code(auto_increment_field_name) + ","
                 equivalent = {}
                 for index, col in enumerate(dataset.columns):
                     field = tools.format_var_name(col)
