@@ -19,3 +19,6 @@ TwoCaptcha~=0.0.1
 
 psutil
 gitPython
+
+python-Levenshtein-wheels
+python-Levenshtein

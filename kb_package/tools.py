@@ -20,10 +20,9 @@ import stat as stat_package
 import pandas
 import psutil
 import stat
-
-
-def _init_infinite(self, s=1):
-    self._s = s > 0
+import Levenshtein as lev
+import unicodedata
+from collections.abc import Iterable
 
 
 def add_query_string_to_url(url, params):
@@ -57,6 +56,10 @@ def safe_eval_math(calculation, params=None):
         return res.item()
     except:
         return ""
+
+
+def _init_infinite(self, s=1):
+    self._s = s > 0
 
 
 _infinite_methods = {
@@ -95,6 +98,24 @@ _infinite_methods.update(
 )
 
 INFINITE = type("Infinite", (float,), _infinite_methods)()
+
+
+def remove_accent_from_text(text):
+    """
+    Strip accents from input String.
+
+    text: The input string.
+
+    returns:
+        The processed String.
+
+    """
+    text = text.encode("utf-8").decode("utf-8")
+
+    text = unicodedata.normalize('NFD', text)
+    text = text.encode('ascii', 'ignore')
+    text = text.decode("utf-8")
+    return str(text)
 
 
 def read_datafile(file_path, drop_duplicates=False, drop_duplicates_on=None):
@@ -324,6 +345,32 @@ def timer(logger_name=None, verbose=False):
     return inner
 
 
+def many_try(max_try=3, verbose=True, sleep_time=None, logger_name=None):
+    def inner(func):
+        def run(*args, **kwargs):
+            for index_try in range(max_try):
+                try:
+                    data = func(*args, **kwargs)
+                    return data
+                except Exception as ex:
+                    if verbose or index_try == max_try - 1:
+                        if logger_name:
+                            logging.getLogger(logger_name).warning(
+                                f"Got error: {ex}  when try to execute :{func.__name__}"
+                            )
+                        else:
+                            print("Got error:  when try to execute :", func.__qualname__)
+                        if index_try == max_try - 1:
+                            raise Exception(ex)
+                        if isinstance(sleep_time, (float, int)):
+                            time.sleep(sleep_time)
+                        print(traceback.format_exc())
+
+        return run
+
+    return inner
+
+
 class CustomFileOpen:
     def __init__(self, path, file_type: str = None, limit=None):
         if file_type is None:
@@ -358,8 +405,18 @@ class CustomFileOpen:
 
 
 class CustomDateTime:
-    SUPPORTED_FORMAT = {"yyyy-mm-dd": "%Y{sep}%m{sep}%d",
-                        "dd-mm-yyyy": "%d{sep}%m{sep}%Y"}
+    SUPPORTED_FORMAT = {
+        "yyyy-mm-dd": "%Y{sep}%m{sep}%d",
+        "yyyy/mm/dd": "%Y{sep}%m{sep}%d",
+        "yyyymmdd": "%Y{sep}%m{sep}%d",
+        "ymd": "%Y{sep}%m{sep}%d",
+        "y-m-d": "%Y{sep}%m{sep}%d",
+        "y/m/d": "%Y{sep}%m{sep}%d",
+        "dd/mm/yyyy": "%d{sep}%m{sep}%Y",
+        "d/m/y": "%d{sep}%m{sep}%Y",
+        "dmy": "%d{sep}%m{sep}%Y",
+        "d-m-y": "%d{sep}%m{sep}%Y",
+        "dd-mm-yyyy": "%d{sep}%m{sep}%Y"}
     MONTH = {
         1: ["janvier", "january", "janv", "jan", "ja"],
         2: ["février", "fevrier", "february", "fév", "fev", "feb", "fe"],
@@ -367,13 +424,14 @@ class CustomDateTime:
         4: ["avril", "april", "avr", "apr", "ap", "av"],
         5: ["mai", "may"],
         6: ["juin", "june", "jun"],
-        7: ["juillet", "july", "jul"],
+        7: ["juillet", "juil", "july", "jul"],
         8: ["août", "aout", "august", "aug", "ao"],
         9: ["septembre", "september", "sept", "sep"],
         10: ["octobre", "october", "oct"],
         11: ["novembre", "november", "nov", "no"],
-        12: ["décembre", "decembre", "december", "dec", "de"]
+        12: ["décembre", "decembre", "december", "dec", "déc", "de"]
     }
+    WEEKDAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
     def __init__(self, date_value: Union[str, datetime.datetime,
                                          datetime.date] = "now", **kwargs):
@@ -392,6 +450,26 @@ class CustomDateTime:
         return repr(self._source)
 
     @staticmethod
+    def range_date(inf: Union[datetime.date, str], sup: Union[datetime.date, str, int] = None, step=1):
+        if sup is None:
+            if CustomDateTime(inf).date() < datetime.date.today():
+                sup = "now"
+            else:
+                sup = inf
+                inf = "now"
+
+        inf = CustomDateTime(inf).date()
+        if isinstance(sup, int):
+            sup = inf + datetime.timedelta(days=sup)
+            if sup < inf:
+                step = -1 if not step else -step
+        else:
+            sup = CustomDateTime(sup).date()
+        d = (sup - inf).days + 1
+        for i in range(0, d, step or 1):
+            yield inf + datetime.timedelta(days=i)
+
+    @staticmethod
     def _parse(date_value: Union[str, datetime.datetime,
                                  datetime.date] = "now",
                **kwargs) -> datetime.datetime:
@@ -408,7 +486,7 @@ class CustomDateTime:
             date_value = now
         elif isinstance(date_value, str):
             date_value = date_value.strip()
-            reg = (r'^(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:[A-Z]'
+            reg = (r'^(\d{4})[/-]?(\d{1,2})[/-]?(\d{1,2})(?:[A-Z]'
                    r'(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d+))?)?)?$'
                    )
             if re.search(reg, date_value):
@@ -443,13 +521,14 @@ class CustomDateTime:
                         month_ref[s] = key
                 v = v[:-1]
 
-                reg = r"\s(?:(\d{1,2})\s)?(%s)\s(\d{4})\s" % v
+                reg = r"\s(?:(\d{1,2})[\s-])?(%s)[\s-](\d{2}|d{4})\s" % v
 
                 if re.search(reg, f" {date_value} ", flags=re.I):
                     day, month, year = re.search(reg,
                                                  f" {date_value} ",
                                                  flags=re.I).groups()
-                    month = month_ref[month]
+                    year = year if len(year) == 4 else "20" + year
+                    month = month_ref[month.lower()]
                 else:
                     got = False
 
@@ -473,7 +552,11 @@ class CustomDateTime:
                                            )
         return date_value
 
-    def to_string(self, sep="_", microsecond=False, force_time=False,
+    @property
+    def get_french_weekday(self):
+        return self.WEEKDAYS[self._source.weekday()]
+
+    def to_string(self, sep=None, microsecond=False, force_time=False,
                   d_format=None):
         t = True
         if not force_time:
@@ -504,21 +587,26 @@ class CustomDateTime:
         if d_format:
             if "-" in d_format:
                 sep = "-"
-            else:
+            elif "/" in d_format:
                 sep = "/"
-        if not sep:
-            sep = "_"
-        d_format = CustomDateTime.SUPPORTED_FORMAT.get(
-            d_format, "%Y{sep}%m{sep}%d").format(sep=sep)
+        if sep is None:
+            sep = ""
         current_time = CustomDateTime._parse(date_time)
+        if str(d_format).lower() == "normal":
+            date_time = CustomDateTime.WEEKDAYS[current_time.weekday()] + " " + \
+                        f"{current_time.day:0>2} " + \
+                        CustomDateTime.MONTH[current_time.month][0] + " " + \
+                        str(current_time.year)
+
+        else:
+            d_format = CustomDateTime.SUPPORTED_FORMAT.get(
+                d_format, "%Y{sep}%m{sep}%d").format(sep=sep)
+            date_time = current_time.strftime(d_format + (f" %H:%M:%S" if time_ else ""))
 
         if not microsecond:
             current_time.replace(microsecond=0)
         ms = current_time.microsecond
-        return current_time.strftime(
-            d_format +
-            (f" %H:%M:%S" if time_ else "")
-        ) + (f":{str(ms)[:3]:0>3}" if microsecond and time_ else "")
+        return date_time + (f":{str(ms)[:3]:0>3}" if microsecond and time_ else "")
 
     @classmethod
     def from_calculation(cls,
@@ -576,5 +664,200 @@ class CustomDateTime:
         return cls(date_time)
 
 
+class CModality:
+    EQUALITY_THRESHOLD = 0.8
+
+    def __init__(self, *args, values: dict = None, key=None):
+        values = (values or {})
+        assert isinstance(values, dict), "Bad values given"
+        self._values = {}
+        modalities = []
+        if len(args):
+            if len(args) == 1 and isinstance(args[0], Iterable):
+                if isinstance(args[0][0], dict):
+                    # {modality|name:_, value:}
+                    values = {
+                        (u.get(key) or u.get("modality") or u.get("name")): u.get("value") or u
+                        for u in args[0]
+                    }
+                    args = [values.keys()]
+                elif isinstance(args[0][0], Iterable):
+                    # (modality, value1, value2, value3, ...)
+                    values = {
+                        u[0]: u[1:]
+                        for u in args[0]
+                    }
+                    args = [values.keys()]
+
+                modalities = [str(u) for u in args[0]]
+            else:
+                if isinstance(args[0], dict):
+                    # {modality|name:_, value:}
+                    values = {
+                        (u.get(key) or u.get("modality") or u.get("name")): u.get("value") or u
+                        for u in args
+                    }
+                    args = values.keys()
+                elif isinstance(args[0], Iterable):
+                    # (modality, value1, value2, value3, ...)
+                    values = {
+                        u[0]: u[1:]
+                        for u in args
+                    }
+                    args = values.keys()
+                modalities = [str(u) for u in args]
+
+        self._modalities = modalities
+
+        self._values = {k.lower(): values.get(k) or values.get(k.lower()) or k for k in self._modalities}
+
+    def regex(self, remove_space=True):
+        return re.compile(r"(?:.*?)?(" + "|".join(
+            [
+                remove_accent_from_text(str(d).replace("-", "").replace(" ", ""))
+                if remove_space
+                else remove_accent_from_text(str(d))
+                for d in self._modalities
+            ]) + r")(?:.*)?", flags=re.I | re.S)
+
+    def get(self, check, default=None, remove_space=True):
+        check = remove_accent_from_text(check)
+        if remove_space:
+            check = str(check).replace("-", "").replace(" ", "")
+        res = self.regex(remove_space=remove_space).match(check)
+        if res:
+            return self._values.get(res.groups()[0].lower())
+        check = check.lower()
+        candidates = []
+        for modality in self._modalities:
+            m = modality.lower().strip()
+            if remove_space:
+                m = m.replace("-", "").replace(" ", "")
+            if (
+                    len(m) not in range(len(check) - 3, len(check) + 3) and
+                    not m.startswith(check) and
+                    not check.startswith(m)
+            ):
+                continue
+
+            if m.startswith(check):
+                return self._values.get(modality.lower())
+            candidates.append([m, modality])
+        res, score, best = CModality.best_similarity(check, candidates, remove_space=remove_space)
+        if score >= CModality.EQUALITY_THRESHOLD:
+
+            print("got res: ", res, "->", check, "list: ", best)
+        else:
+            res = None
+        return self._values.get(res.lower() if res is not None else None, default)
+
+    @staticmethod
+    def best_similarity(text, candidates, remove_space=True):
+
+        candidates = pandas.DataFrame(candidates, columns=["candidates", "modality"])
+
+        candidates.score = candidates.candidates.apply(lambda candidat: CModality.equal(
+            first=candidat, other=text, get=True, remove_space=remove_space))
+        best_score = candidates.score.max()
+        best = candidates.loc[candidates.score >= best_score, ["modality", "candidates"]]
+        # order by first characters
+        best = [[k, v] for k, v in zip(best.candidates, best.modality)]
+        best = sorted(best, key=lambda x: INFINITE if x[0][0] == text[0] else 0, reverse=True)
+        best = sorted(best, key=lambda x: INFINITE if len(x[1]) != len(text) else 0, reverse=True)
+        return ([(d[1], best_score, [p[1] for p in best]) for d in best] or [(None, 0, None)])[0]
+
+    @staticmethod
+    def equal(first, other, force=True, remove_space=False, get=False):
+        res = str(first) == other
+        if not force:
+            return res if not get else INFINITE
+        if res:
+            return True if not get else INFINITE
+        # prepare texts
+        # remove accents
+        this = remove_accent_from_text(str(first).lower()).strip()
+        other = remove_accent_from_text(str(other.lower())).strip()
+
+        if other == this:
+            return True if not get else INFINITE
+        # remove special characters
+        regex = re.compile(r"""[`~!@#$%^&*()_|+\-=?’;:'",.<>{}\[\]\\/\d]""", flags=re.I | re.S)
+        this = regex.sub("", this)
+        other = regex.sub("", other)
+
+        if other == this:
+            return True if not get else INFINITE
+        regex = re.compile("""[^\x00-\x7F]+""", flags=re.I | re.S)
+        this = regex.sub("", this)
+        other = regex.sub("", other)
+
+        if other == this:
+            return True if not get else INFINITE
+        # remove_space
+        if remove_space:
+            regex = re.compile(r"\s+", flags=re.I | re.S)
+            this = regex.sub("", this)
+            other = regex.sub("", other)
+        #
+        if other == this:
+            return True if not get else INFINITE
+        """
+        if len(this) > len(other):
+            min_size_temp = other
+            max_size_temp = this
+        else:
+            min_size_temp = this
+            max_size_temp = other
+        """
+        lev1 = levCalclulate(other, this)
+        if lev1[1] >= CModality.EQUALITY_THRESHOLD:
+            # print(this, other, lev1)
+            pass
+        if get:
+            return lev1[1]
+        return lev1[1] >= CModality.EQUALITY_THRESHOLD
+
+
+def levCalclulate(str1, str2):
+    Distance = lev.distance(str1, str2)
+    Ratio = lev.ratio(str1, str2)
+
+    return Distance, Ratio
+
+
+def test():
+    from kb_package.database.sqlitedb import SQLiteDB
+
+    SQLITE_DB_PATH = r"C:\Users\FBYZ6263\Documents\WORK_FOLDER\Dashboard-project\projects\broadband\broadband_db.sqlite"
+
+    db_object = SQLiteDB(SQLITE_DB_PATH)
+    zoneJson = r"C:\Users\FBYZ6263\Documents\WORK_FOLDER\Dashboard-project\projects\broadband\data\zone.json"
+    zoneJson = read_json_file(zoneJson, [])
+
+    test = CModality(zoneJson, key="search")
+    res = db_object.run_script("""SELECT distinct city FROM parc WHERE date_jour=? group by city 
+                                                        order by city""",
+                               params=("2022-09-18",),
+                               dict_res=True)
+
+    nb_found = 0
+    dont_find_modal = ''
+    # res = ["a","SAN PEDRO MANZAN IMMEUBLE GRIS", "SAN PËDRO", "SAN--PEDRO", "SANPEDRO", "SANS PEDRO"]
+    for d in res:
+        if isinstance(d, dict):
+            d = d["city"]
+        if not isinstance(test.get(d, default=-1), int):
+            nb_found += 1
+        else:
+            dont_find_modal += str(d) + "\n"
+
+    print("ok")
+    print("Find :", nb_found, ". Don't find:", len(res) - nb_found)
+    print(dont_find_modal)
+
+
 if __name__ == "__main__":
-    print(CustomDateTime('12:10 lundi 13 février 2022')())
+    # print(CustomDateTime('12:10 lundi 13 février 2022')())
+    pass
+    d = CustomDateTime("10-sept-20")
+    print(d)
