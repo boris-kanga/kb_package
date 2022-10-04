@@ -527,6 +527,11 @@ class CustomDateTime:
                     day, month, year = re.search(reg,
                                                  f" {date_value} ",
                                                  flags=re.I).groups()
+                    if len(year) == 2:
+                        if "20" + year <= str(datetime.datetime.now().year):
+                            year = "20" + year
+                        else:
+                            year = "19" + year
                     year = year if len(year) == 4 else "20" + year
                     month = month_ref[month.lower()]
                 else:
