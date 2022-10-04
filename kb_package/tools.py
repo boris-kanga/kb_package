@@ -532,7 +532,6 @@ class CustomDateTime:
                             year = "20" + year
                         else:
                             year = "19" + year
-                    year = year if len(year) == 4 else "20" + year
                     month = month_ref[month.lower()]
                 else:
                     got = False
