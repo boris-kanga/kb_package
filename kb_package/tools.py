@@ -404,6 +404,66 @@ class CustomFileOpen:
                 file.writelines(data)
 
 
+class Cdict(dict):
+    NO_CAST_CONSIDER = True
+
+    def __init__(self, data: Union[dict, list, tuple] = None, keys: Union[list, tuple, str] = None, **kwargs):
+        if isinstance(data, dict):
+            data.update(kwargs)
+        elif isinstance(data, (list, tuple)):
+            keys = list(keys or range(len(data)))
+            data = {k: dd for k, dd in zip(keys, data)}
+        else:
+            data = kwargs
+
+        super().__init__(data)
+        if self.NO_CAST_CONSIDER:
+            self.key_eq = {str(k).lower(): k for k in self.keys()}
+        else:
+            self.key_eq = {k: k for k in self.keys()}
+
+    def get(self, item, default=None):
+        key = self.key_eq.get(str(item).lower()) or item
+        return super().__getitem__(key)
+
+    def __getitem__(self, item):
+        key = self.key_eq.get(str(item).lower()) or item
+        return super().__getitem__(key)
+
+    def __getattr__(self, item):
+        key = self.key_eq.get(str(item).lower()) or item
+        return super().__getitem__(key)
+
+    def pop(self, k):
+        if self.NO_CAST_CONSIDER:
+            k = self.key_eq.pop(str(k).lower())
+        return super().pop(k)
+
+    def update(self, other: dict = None, **kwargs):
+        other.update(kwargs)
+        if self.NO_CAST_CONSIDER:
+            temp = {str(k).lower(): k for k in other.keys()}
+            keys = set([str(k).lower() for k in other.keys()]).difference(self.key_eq.keys())
+            self.key_eq.update({kk: k for kk, k in temp.items() if kk in keys})
+        super().update(other)
+
+    def __contains__(self, item):
+        return self.key_eq.__contains__(str(item).lower()) or super().__contains__(item)
+
+    def __delitem__(self, k): # real signature unknown
+        """ Delete self[key]. """
+        if self.NO_CAST_CONSIDER:
+            k = self.key_eq.pop(str(k).lower())
+        super().__delitem__(k)
+
+    def __setitem__(self, k, v): # real signature unknown
+        """ Set self[key] to value. """
+        if self.NO_CAST_CONSIDER:
+            if k not in self:
+                self.key_eq[str(k).lower()] = k
+        super().__setitem__(k, v)
+
+
 class CustomDateTime:
     SUPPORTED_FORMAT = {
         "yyyy-mm-dd": "%Y{sep}%m{sep}%d",
@@ -604,7 +664,7 @@ class CustomDateTime:
 
         else:
             d_format = CustomDateTime.SUPPORTED_FORMAT.get(
-                d_format, "%Y{sep}%m{sep}%d").format(sep=sep)
+                d_format, d_format or "%Y{sep}%m{sep}%d").format(sep=sep)
             date_time = current_time.strftime(d_format + (f" %H:%M:%S" if time_ else ""))
 
         if not microsecond:
@@ -865,3 +925,7 @@ if __name__ == "__main__":
     pass
     d = CustomDateTime("10-sept-20")
     print(d)
+
+    test = Cdict({"t": 1, "p": 3})
+    print(test)
+    print(test.t, test.T, test["T"])
