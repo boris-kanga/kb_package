@@ -450,13 +450,13 @@ class Cdict(dict):
     def __contains__(self, item):
         return self.key_eq.__contains__(str(item).lower()) or super().__contains__(item)
 
-    def __delitem__(self, k): # real signature unknown
+    def __delitem__(self, k):  # real signature unknown
         """ Delete self[key]. """
         if self.NO_CAST_CONSIDER:
             k = self.key_eq.pop(str(k).lower())
         super().__delitem__(k)
 
-    def __setitem__(self, k, v): # real signature unknown
+    def __setitem__(self, k, v):  # real signature unknown
         """ Set self[key] to value. """
         if self.NO_CAST_CONSIDER:
             if k not in self:
@@ -466,17 +466,8 @@ class Cdict(dict):
 
 class CustomDateTime:
     SUPPORTED_FORMAT = {
-        "yyyy-mm-dd": "%Y{sep}%m{sep}%d",
-        "yyyy/mm/dd": "%Y{sep}%m{sep}%d",
-        "yyyymmdd": "%Y{sep}%m{sep}%d",
-        "ymd": "%Y{sep}%m{sep}%d",
-        "y-m-d": "%Y{sep}%m{sep}%d",
-        "y/m/d": "%Y{sep}%m{sep}%d",
-        "dd/mm/yyyy": "%d{sep}%m{sep}%Y",
-        "d/m/y": "%d{sep}%m{sep}%Y",
-        "dmy": "%d{sep}%m{sep}%Y",
-        "d-m-y": "%d{sep}%m{sep}%Y",
-        "dd-mm-yyyy": "%d{sep}%m{sep}%Y"}
+
+    }
     MONTH = {
         1: ["janvier", "january", "janv", "jan", "ja"],
         2: ["février", "fevrier", "february", "fév", "fev", "feb", "fe"],
@@ -580,9 +571,7 @@ class CustomDateTime:
                         v += s + "|"
                         month_ref[s] = key
                 v = v[:-1]
-
-                reg = r"\s(?:(\d{1,2})[\s-])?(%s)[\s-](\d{2}|d{4})\s" % v
-
+                reg = r"\s(?:(\d{1,2})[\s-]+)?(%s)[\s-]+(\d{2}|\d{4})\s" % v
                 if re.search(reg, f" {date_value} ", flags=re.I):
                     day, month, year = re.search(reg,
                                                  f" {date_value} ",
@@ -621,9 +610,8 @@ class CustomDateTime:
         return self.WEEKDAYS[self._source.weekday()]
 
     def to_string(self, sep=None, microsecond=False, force_time=False,
-                  d_format=None):
-        t = True
-        if not force_time:
+                  d_format=None, t=True):
+        if not force_time and t:
             t = (self._source.hour or self._source.minute
                  or self._source.second or self._source.microsecond)
         return self.datetime_as_string(self._source, sep=sep,
@@ -648,14 +636,52 @@ class CustomDateTime:
             str, the datetime str formatted
 
         """
-        if d_format:
+
+        current_time = CustomDateTime._parse(date_time)
+        if isinstance(d_format, str):
+            try:
+                res = current_time.strftime(d_format)
+                assert res != d_format
+                return res
+            except (ValueError, AssertionError):
+                pass
+            d_format = d_format.replace("%", "")\
+                .replace("yyyy", "%Y").replace("aaaa", "%Y") \
+                .replace("yy", "%y").replace("aa", "%y") \
+                .replace("mm", "%m") \
+                .replace("dd", "%d").replace("jj", "%d").replace("j", "%d")
+            last_car_is_percent = False
+            final_format = ""
+            for car in d_format:
+                if last_car_is_percent:
+                    pass
+                else:
+                    car = {"d": "%d", "j": "%d", "a": "%Y", "y": "%Y", "m": "%m"}.get(car.lower(), car)
+                last_car_is_percent = False
+                if car == "%":
+                    last_car_is_percent = True
+                final_format += car
+            d_format = final_format
+            temp = d_format
+            res = re.search(r"%?h{1,2}(\s*[:-\\ ]\s*)%?m{1,2}(\s*[:-\\ ]\s*)%?s{1,2}", temp, flags=re.I)
+            final_temp = ""
+            while res:
+                time_ = False
+                sepc = res.groups()
+                final_temp += temp[:res.start()+1] + "%H" + sepc[0] + "%M" + sepc[1] + "%S"
+                temp = temp[res.end():]
+                res = re.search(r"%?h{1,2}\s*:\s*%?m{1,2}\s*:\s*%?s{1,2}", temp, flags=re.I)
+            d_format = final_temp + temp
+            print(d_format)
             if "-" in d_format:
                 sep = "-"
             elif "/" in d_format:
                 sep = "/"
+        else:
+            d_format = "%Y{sep}%m{sep}%d"
         if sep is None:
             sep = ""
-        current_time = CustomDateTime._parse(date_time)
+
         if str(d_format).lower() == "normal":
             date_time = CustomDateTime.WEEKDAYS[current_time.weekday()] + " " + \
                         f"{current_time.day:0>2} " + \
@@ -664,7 +690,7 @@ class CustomDateTime:
 
         else:
             d_format = CustomDateTime.SUPPORTED_FORMAT.get(
-                d_format, d_format or "%Y{sep}%m{sep}%d").format(sep=sep)
+                d_format, d_format).format(sep=sep)
             date_time = current_time.strftime(d_format + (f" %H:%M:%S" if time_ else ""))
 
         if not microsecond:
@@ -921,11 +947,5 @@ def test():
 
 
 if __name__ == "__main__":
-    # print(CustomDateTime('12:10 lundi 13 février 2022')())
-    pass
-    d = CustomDateTime("10-sept-20")
-    print(d)
-
-    test = Cdict({"t": 1, "p": 3})
-    print(test)
-    print(test.t, test.T, test["T"])
+    d = CustomDateTime('lundi 13 février 2022')
+    print(d.to_string(d_format="jj-mm-aaa", force_time=False))
