@@ -259,7 +259,12 @@ class BaseDB(abc.ABC):
 
         self.commit()
         if retrieve:
-            return self.get_all_data_from_cursor(cursor, limit=limit, dict_res=dict_res)
+            data = self.get_all_data_from_cursor(cursor, limit=limit, dict_res=dict_res)
+            if dict_res:
+                if limit == 1:
+                    return tools.Cdict(data)
+                return [tools.Cdict(d) for d in data]
+            return data
 
     @staticmethod
     def get_add_increment_field_code(field_name="id"):
