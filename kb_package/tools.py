@@ -672,7 +672,6 @@ class CustomDateTime:
                 temp = temp[res.end():]
                 res = re.search(r"%?h{1,2}\s*:\s*%?m{1,2}\s*:\s*%?s{1,2}", temp, flags=re.I)
             d_format = final_temp + temp
-            print(d_format)
             if "-" in d_format:
                 sep = "-"
             elif "/" in d_format:
@@ -913,37 +912,6 @@ def levCalclulate(str1, str2):
     Ratio = lev.ratio(str1, str2)
 
     return Distance, Ratio
-
-
-def test():
-    from kb_package.database.sqlitedb import SQLiteDB
-
-    SQLITE_DB_PATH = r"C:\Users\FBYZ6263\Documents\WORK_FOLDER\Dashboard-project\projects\broadband\broadband_db.sqlite"
-
-    db_object = SQLiteDB(SQLITE_DB_PATH)
-    zoneJson = r"C:\Users\FBYZ6263\Documents\WORK_FOLDER\Dashboard-project\projects\broadband\data\zone.json"
-    zoneJson = read_json_file(zoneJson, [])
-
-    test = CModality(zoneJson, key="search")
-    res = db_object.run_script("""SELECT distinct city FROM parc WHERE date_jour=? group by city 
-                                                        order by city""",
-                               params=("2022-09-18",),
-                               dict_res=True)
-
-    nb_found = 0
-    dont_find_modal = ''
-    # res = ["a","SAN PEDRO MANZAN IMMEUBLE GRIS", "SAN PËDRO", "SAN--PEDRO", "SANPEDRO", "SANS PEDRO"]
-    for d in res:
-        if isinstance(d, dict):
-            d = d["city"]
-        if not isinstance(test.get(d, default=-1), int):
-            nb_found += 1
-        else:
-            dont_find_modal += str(d) + "\n"
-
-    print("ok")
-    print("Find :", nb_found, ". Don't find:", len(res) - nb_found)
-    print(dont_find_modal)
 
 
 if __name__ == "__main__":
