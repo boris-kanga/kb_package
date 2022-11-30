@@ -5,23 +5,30 @@ Use to create selenium web driver with a specific configuration
 """
 import json
 import random
+import re
 import shutil
 import time
 import importlib
 import os
 import traceback
+import typing
 
-from typing import Union
 
-from fake_useragent import UserAgent
+try:
+    from fake_useragent import UserAgent
+except ImportError:
+    class UserAgent:
+        pass
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.proxy import Proxy, ProxyType
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 import requests
-
 from kb_package import tools
+from kb_package.crawler.navigation_errors.error_handler import (
+    ErrorHandler
+)
 from kb_package.custom_proxy.custom_proxy import CustomProxy
 
 try:
@@ -30,6 +37,25 @@ except ImportError:
     import logging
 
     CustomLogger = logging.getLogger
+
+
+def _get_default_navigator():
+    folder = os.path.join(os.path.dirname(__file__), "drivers")
+    supported_nav = os.listdir(folder)
+    for nav in supported_nav:
+        if not os.path.isdir(os.path.join(folder, nav)) or nav.startswith("__"):
+            continue
+        try:
+            print(nav)
+            driver_manager = getattr(importlib.import_module(
+                "kb_package.crawler.drivers.%s.driver_manager"
+                % nav),
+                "DriverManager")()
+            assert len(str(driver_manager.find_navigator_version).strip())
+            return nav
+        except (ImportError, AttributeError, Exception):
+            traceback.print_exc()
+            pass
 
 
 class CustomDriver:
@@ -54,21 +80,45 @@ class CustomDriver:
         self._args = args
         self._kwargs = kwargs
         self.origin_tab = None
+        self.logger = kwargs.get("logger") or CustomLogger("CustomDriver")
 
     def create(self, *args, **kwargs):
-        try:
-            self._driver.close()
-        except AttributeError:
-            pass
+        print("in create", self._driver)
+        if self._driver is not None:
+            return
         self._driver = CustomDriver.create_driver(
             *(self._args or args), **(self._kwargs or kwargs))
         self.origin_tab = self._driver.window_handles[0]
 
     def __call__(self, *args, **kwargs):
+        if self._driver is None:
+            self.create(*args, **kwargs)
         return self._driver
 
+    def stop(self):
+        try:
+            self._driver.quit()
+        except (AttributeError, Exception):
+            pass
+        finally:
+            self._driver = None
+
+    def kill(self):
+        self.stop()
+
+    def quit(self):
+        self.stop()
+
+    def close(self):
+        self.stop()
+
+    def __getattr__(self, item, *args):
+        return getattr(self._driver, item)
+
     def __enter__(self):
+        print("in enter", self._driver)
         if self._driver is None:
+
             self.create()
         return self._driver
 
@@ -99,7 +149,7 @@ class CustomDriver:
         """
         try:
             return UserAgent().data_browsers
-        except (IndexError, Exception):
+        except (IndexError, AttributeError, Exception):
             return {
                 k: [
                     CustomDriver.DEFAULT_UA
@@ -150,6 +200,80 @@ class CustomDriver:
         except:
             pass
         return screenshots_files_list
+
+    def sleep_until_load(
+            self, max_try=3,
+            css_selector="img[src], a[href], h1,h2,h3,h4,h5,h6",
+            check_error=True, get_data=False, apply=None, match=None
+    ):
+        """
+        Wait for dom load
+        Args:
+            max_try: int, time in second for wait for dom loaded
+            css_selector: str, criteria for dom loaded judgment
+            get_data: bool, get the value returns by css_selector
+            check_error: bool, if it necessary to check any error in the dom
+            apply: function to apply of result for using @match
+            match: list or reg
+
+        Returns:
+            dict, signature {"got", "error", "elapsed"}
+        """
+        start_time = time.time()
+        error = None
+        data = None
+        got = False
+        for i in range(max_try):
+            try:
+                data = self._driver.execute_script(
+                    """
+                let elm=document.querySelector(arguments[0]);
+                return (elm==null)? null: elm.innerText || elm.value || true;""",
+                    css_selector,
+                )
+                if data is not None:
+                    if match is not None:
+                        if callable(apply):
+                            data = apply(data)
+                        if isinstance(match, str):
+                            match = [match]
+                        if isinstance(match, (list, tuple)):
+                            for d in match:
+                                if re.match(d, str(data), flags=re.I | re.S):
+                                    got = True
+                                    break
+                            if not got:
+                                data = None
+                                error = "Finished to load tag %s not found" % (str(match))
+
+                        else:
+                            got = False
+                            error = "Finished to load tag %s not found" % (str(match))
+                    else:
+                        got = True
+                    break
+                if check_error:
+                    error = ErrorHandler.detect_error(
+                        self._driver.page_source, check_dom_load=False
+                    )
+                    if error is not None:
+                        got = False
+                        break
+            except Exception as ex:
+                got = False
+                error = str(ex)
+                break
+            time.sleep(1)
+        d = {
+            "got": got,
+            "elapsed": time.time() - start_time,
+            "error": error
+        }
+        if not got and error is None:
+            d["error"] = "WaitingTimeOut"
+        if get_data:
+            d["data"] = data
+        return d
 
     @staticmethod
     def open_new_tab(driver, for_url="", switch_on=True, load_page=None):
@@ -294,7 +418,7 @@ class CustomDriver:
 
     @staticmethod
     def create_driver(
-            navigator: Union[int, str] = 2,
+            navigator: typing.Optional[typing.Union[str, int]] = None,
             logger=CustomLogger("CustomDriver"), **kwargs
     ):
         """
@@ -353,6 +477,8 @@ class CustomDriver:
             "Your selection of navigator must be int or string value like: "
             "([1 | CHROME], [2 | FIREFOX])"
         )
+        if navigator is None:
+            navigator = _get_default_navigator()
         assert isinstance(navigator, (int, str)), error_navigator
         if isinstance(navigator, str):
             assert navigator.lower() in \
@@ -364,6 +490,7 @@ class CustomDriver:
         else:
             assert navigator in CustomDriver.SET_OF_NAVIGATOR, error_navigator
             navigator_str = CustomDriver.SET_OF_NAVIGATOR[navigator]
+        kwargs["headless"] = kwargs.get("headless", bool(os.environ.get("CUSTOM-DRIVER-HEALESS")))
         default_executable_path = None
         plugin_file = str(os.getpid()) + "-plugin."
         plugin_extension = "xpi"
@@ -383,13 +510,13 @@ class CustomDriver:
         proxy_val = kwargs.get("proxy_val", None)
         custom_proxy = CustomProxy(proxy_val)
         random_user_agent = kwargs.get(
-            "random_user_agent",
-            True if custom_proxy else False)
+            "random_user_agent",True)
         ua = None
+
         if random_user_agent:
             ua = random.choice(CustomDriver.create_user_agent()[navigator_str])
-        user_agent = kwargs.get("default_ua", ua)
-
+        user_agent = kwargs.get("default_ua", kwargs.get("ua", ua))
+        print(user_agent, random_user_agent)
         kwargs["default_ua"] = user_agent
 
         extensions = None
@@ -474,6 +601,7 @@ class CustomDriver:
 if __name__ == "__main__":
 
     from selenium.webdriver.common.by import By
+
     USER_ID = "id"
     USER_PWD = "pass"
     URL = "https://lite-1x4635600.top/fr/othergames?product=849"
@@ -542,7 +670,7 @@ if __name__ == "__main__":
             last_value = [float(x.split("x")[0]) for x in last_value[::-1]]
             print("got last values", last_value)
             with open(FILE, "w") as file:
-                file.writelines([str(x)+"\n" for x in last_value])
+                file.writelines([str(x) + "\n" for x in last_value])
             nb_of_new = None
             iter_index = 0
             while True:
@@ -567,7 +695,7 @@ if __name__ == "__main__":
                     break
                 iter_index += 1
                 with open(FILE, "a") as file:
-                    file.write(str(not_present)+"\n")
+                    file.write(str(not_present) + "\n")
         except KeyboardInterrupt:
             print("Aurevoir")
             driver.close()

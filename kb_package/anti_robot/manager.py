@@ -7,6 +7,14 @@ References:
     - https://pypi.org/project/2captcha-python/#normal-captcha
     - https://www.deathbycaptcha.com/api
     - https://github.com/alperensert/capmonster_python
+
+
+Required packages:
+    deathbycaptcha~=0.1.1
+    TwoCaptcha~=0.0.1
+    2captcha-python==1.0.3
+    python-anticaptcha==0.6.0
+    capmonster_python
 """
 import re
 import string

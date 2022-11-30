@@ -2,6 +2,8 @@
 """
 The Mysql manager.
 Use for run easily mysql requests
+
+Required psycopg2~=2.9.3
 """
 
 import psycopg2
@@ -10,6 +12,10 @@ from kb_package.database.basedb import BaseDB
 
 
 class PostgresDB(BaseDB):
+    @property
+    def _get_name(self):
+        return self.__class__.__name__
+
     DEFAULT_PORT = 5432
 
     @staticmethod
@@ -33,10 +39,9 @@ class PostgresDB(BaseDB):
                                     dbname=db_name,
                                     password=password, port=port)
         except Exception as ex:
-            raise Exception(
-                "Une erreur lors que la connexion à la base de donnée: "
-                + str(ex)
-            )
+            ex.args = ["Une erreur lors que la connexion à la base de donnée --> " + str(ex.args[0])] + \
+                      list(ex.args[1:])
+            raise ex
 
     def _cursor(self):
         return self.db_object.cursor()

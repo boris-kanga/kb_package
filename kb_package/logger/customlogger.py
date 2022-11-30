@@ -148,7 +148,7 @@ class CustomLogger:
 
         self.writer = logger
 
-    def _log(self, msg, *args, level="INFO"):
+    def _log(self, msg, *args, level="INFO", **kwargs):
         """
         Use to log
         Args:
@@ -187,11 +187,15 @@ class CustomLogger:
                         print(traceback.format_exc())
 
                     self._create_new_logger_handler()
-        getattr(self.writer, level.lower())(msg, *args)
+        try:
+            msg = str(msg) % args
+        except TypeError:
+            msg = " ".join([str(msg)] + [str(p) for p in args])
+        getattr(self.writer, level.lower())(msg, **kwargs)
         if self.callback and self.callback_each_logging:
             self.send_all_logger_message_by_callback()
 
-    def info(self, msg="\n", *args):
+    def info(self, msg="\n", *args, **kwargs):
         """
         log info
         Args:
@@ -201,9 +205,9 @@ class CustomLogger:
         Returns:
 
         """
-        self._log(msg, *args, level="INFO")
+        self._log(msg, *args, level="INFO", **kwargs)
 
-    def exception(self, msg="\n", *args):
+    def exception(self, msg="\n", *args, **kwargs):
         """
         log exception
         Args:
@@ -213,9 +217,9 @@ class CustomLogger:
         Returns:
 
         """
-        self._log(msg, *args, level="EXCEPTION")
+        self._log(msg, *args, level="EXCEPTION", **kwargs)
 
-    def critical(self, msg="\n", *args):
+    def critical(self, msg="\n", *args, **kwargs):
         """
         log critical
         Args:
@@ -225,9 +229,9 @@ class CustomLogger:
         Returns:
 
         """
-        self._log(msg, *args, level="CRITICAL")
+        self._log(msg, *args, level="CRITICAL", **kwargs)
 
-    def error(self, msg="\n", *args):
+    def error(self, msg="\n", *args, **kwargs):
         """
         log error
         Args:
@@ -237,9 +241,9 @@ class CustomLogger:
         Returns:
 
         """
-        self._log(msg, *args, level="ERROR")
+        self._log(msg, *args, level="ERROR", **kwargs)
 
-    def warning(self, msg="\n", *args):
+    def warning(self, msg="\n", *args, **kwargs):
         """
         log warning
         Args:
@@ -249,10 +253,10 @@ class CustomLogger:
         Returns:
 
         """
-        self._log(msg, *args, level="WARNING")
+        self._log(msg, *args, level="WARNING", **kwargs)
 
 
 if __name__ == '__main__':
     logger = CustomLogger("Worker", callback=print)
     logger.info("OK")
-    logger.info("Non")
+    logger.info("Non %s test %s", "ok")

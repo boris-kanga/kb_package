@@ -11,6 +11,10 @@ from kb_package.tools import INFINITE
 
 class SQLiteDB(BaseDB):
 
+    @property
+    def _get_name(self):
+        return self.__class__.__name__
+
     @staticmethod
     def connect(file_name="database.db", **kwargs) -> sqlite3.Connection:
         """
@@ -23,10 +27,9 @@ class SQLiteDB(BaseDB):
         try:
             return sqlite3.connect(file_name)
         except Exception as ex:
-            raise Exception(
-                "Une erreur lors que la connexion à la base de donnée: "
-                + str(ex)
-            )
+            ex.args = ["Une erreur lors que la connexion à la base de donnée --> " + str(ex.args[0])] + \
+                      list(ex.args[1:])
+            raise ex
 
     def last_insert_rowid_logic(self, cursor=None, table_name=None):
         if table_name is not None:
@@ -39,7 +42,7 @@ class SQLiteDB(BaseDB):
         return self.db_object.cursor()
 
     @staticmethod
-    def _execute(cursor, script, params=None, ignore_error=False, **kwargs):
+    def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         """
         use to make preparing requests
         Args:
@@ -51,20 +54,49 @@ class SQLiteDB(BaseDB):
         Returns: mysql.connector.cursor.MySQLCursor, the cu
 
         """
+        if method == "many":
+            method = "executemany"
+        else:
+            method = "execute"
         args = [script]
         if params is None:
             pass
         elif isinstance(params, (tuple, list)):
-            params = tuple(params)
-            args.append(params)
-
+            if len(params):
+                if isinstance(params[0], dict):
+                    final_res = []
+                    for p in params:
+                        temp = {}
+                        for k in p:
+                            if ":" + str(k) not in script:
+                                temp[k] = p[k]
+                                temp = list(temp.values())
+                            else:
+                                if isinstance(temp, dict):
+                                    temp[k] = p[k]
+                                else:
+                                    temp.append(p[k])
+                        final_res.append(temp)
+                    params = final_res
+                params = tuple(params)
+                args.append(params)
+        elif isinstance(params, dict):
+            if len(params):
+                k = list(params.keys())[0]
+                if ":" + str(k) in script:
+                    pass
+                else:
+                    params = list(params.values())
+                args.append(params)
         else:
             params = (params,)
             args.append(params)
         try:
-            cursor.execute(*args)
+
+            getattr(cursor, method)(*args)
             return cursor
         except Exception as ex:
+            print(params, script)
             if ignore_error:
                 return None
             raise Exception(ex)
@@ -88,8 +120,8 @@ class SQLiteDB(BaseDB):
         return data
 
     @staticmethod
-    def prepare_insert_data(data: list):
-        return ["?" for _ in data]
+    def prepare_insert_data(data: dict):
+        return ["?" for _ in data], list(data.values())
 
     def dump(self, dump_file='dump.sql'):
         self.reload_connexion()
@@ -101,5 +133,6 @@ class SQLiteDB(BaseDB):
 if __name__ == '__main__':
     db_object = SQLiteDB(file_name=None)
 
-    db_object.create_table(r"C:\Users\FBYZ6263\Downloads\LISTE PUSH OFFRE CABINE 310822.xlsx",
+    db_object.create_table(r"C:\Users\FBYZ6263\Downloads\SWAP_FACEBOOK1.0.csv",
                            auto_increment_field=True)
+    print(db_object.run_script("SELECT * FROM new_table", limit=5))

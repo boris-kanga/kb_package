@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 This module contains a list of Captcha solver with 2 basic
-methods: _get_balnce and _solve_.
+methods: _get_balance and _solve_.
 We have two types of solver: human based and AI based.
 
 """

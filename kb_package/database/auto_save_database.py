@@ -12,7 +12,15 @@ import traceback
 import subprocess
 
 
-from paramiko import AutoAddPolicy, SSHClient
+try:
+    # required paramiko~=2.8.0
+    from paramiko import AutoAddPolicy, SSHClient
+except ImportError:
+    class AutoAddPolicy:
+        pass
+
+    class SSHClient:
+        pass
 
 from .. import tools
 

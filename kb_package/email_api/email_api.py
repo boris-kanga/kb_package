@@ -356,7 +356,6 @@ if __name__ == "__main__":
                         "Contact",
                         bcc,
                         "<receiver>",
-
                         "Contact",
                         bcc,
                         password, smtp_type="smtp")

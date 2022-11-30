@@ -2,6 +2,10 @@
 """
 The Mysql manager.
 Use for run easily mysql requests
+
+
+
+required mysql-connector-python~=8.0.25
 """
 import traceback
 
@@ -11,6 +15,9 @@ from kb_package.database.basedb import BaseDB
 
 
 class MysqlDB(BaseDB):
+    @property
+    def _get_name(self):
+        return self.__class__.__name__
 
     @staticmethod
     def connect(
@@ -34,17 +41,16 @@ class MysqlDB(BaseDB):
                 host=host, user=user, passwd=password, database=db_name,
                 port=port
             )
-        except Exception:
-            traceback.print_exc()
-            raise Exception(
-                "Une erreur lors que la connexion à la base de donnée"
-            )
+        except Exception as ex:
+            ex.args = ["Une erreur lors que la connexion à la base de donnée --> " + str(ex.args[0])] + \
+                      list(ex.args[1:])
+            raise ex
 
     def _cursor(self):
         return self.db_object.cursor()
 
     @staticmethod
-    def _execute(cursor, script, params=None, ignore_error=False, **kwargs):
+    def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         """
         use to make preparing requests
         Args:
@@ -56,8 +62,12 @@ class MysqlDB(BaseDB):
         Returns: mysql.connector.cursor.MySQLCursor, the cu
 
         """
+        if method == "many":
+            method = "executemany"
+        else:
+            method = "execute"
         try:
-            cursor.execute(script, params=params)
+            getattr(cursor, method)(script, params=params)
             return cursor
         except Exception as ex:
             traceback.print_exc()

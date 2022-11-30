@@ -2,6 +2,8 @@
 """
 The MongoDB manager.
 Use for run easily MongoDB requests
+
+Required pymongo~=3.12.0
 """
 import re
 import importlib
@@ -12,7 +14,6 @@ import pymongo
 from kb_package.database.where_clause import WhereClause
 from kb_package.database.basedb import BaseDB
 from kb_package.tools import INFINITE
-
 
 
 class MongoDB(BaseDB):
@@ -27,6 +28,10 @@ class MongoDB(BaseDB):
     SQL_AGGREGATE_REGEX = r"^(AVG|SUM|COUNT|MAX|MIN)\((.*?)\)" \
                           r"(?:(?:\sas)?\s(\w+))?$"
     DEFAULT_PORT = 27017
+
+    @property
+    def _get_name(self):
+        return self.__class__.__name__
 
     @staticmethod
     def eval_sql_type(sql_code, regex):
@@ -184,10 +189,9 @@ class MongoDB(BaseDB):
             return db
 
         except Exception as ex:
-            raise Exception(
-                "Une erreur lors que la connexion à la base de donnée: "
-                + str(ex)
-            )
+            ex.args = ["Une erreur lors que la connexion à la base de donnée --> " + str(ex.args[0])] + \
+                      list(ex.args[1:])
+            raise ex
 
     def _cursor(self):
         return self.db_object[self.database_name]

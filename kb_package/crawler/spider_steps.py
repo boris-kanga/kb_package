@@ -4,6 +4,8 @@ The SpyderSteps Object.
 """
 
 import importlib
+import random
+import time
 
 import selenium.common.exceptions
 
@@ -11,7 +13,7 @@ from kb_package.crawler.steps.step import Step
 
 
 class SpyderSteps:
-    def __init__(self, steps: list, driver):
+    def __init__(self, driver, steps: list=None):
         """
         Constructor
         Args:
@@ -43,13 +45,13 @@ class SpyderSteps:
             return False
 
     def input_form(
-        self, dict__css_selector__value, sleep_time_min=0, sleep_time_max=3000
+        self, dict__css_selector__value, sleep_time_min=0, sleep_time_max=1
     ):
         """
         Use for fill form
         Args:
             dict__css_selector__value: list, of dict,
-                Examples: {"css_selector": "#id", "value":2}
+                Examples: {"selector": "#id", "value":2}
             sleep_time_min: int, sleep time minimum in microsecond between two
                 typing
             sleep_time_max: int, sleep time maximum in microsecond between two
@@ -58,34 +60,18 @@ class SpyderSteps:
         Returns:
             bool, got?
         """
-        css_selector = [f["css_selector"] for f in dict__css_selector__value]
-        values = [f["value"] for f in dict__css_selector__value]
-        m, mm = sleep_time_min, sleep_time_max
-        return (
-            self._driver.execute_script(
-                f"let css_selector=arguments[0], values=arguments[1],"
-                f" good=0, m={m},"
-                f"mm={mm} ;"
-                + """const wait = ms =>newPromise(
-                        resolve =>setTimeout(resolve, ms)
-                    );
-                    async function run(){
-                       for(let i=0; i<name.length;i++){
-                            await wait(Math.floor(Math.random() * mm) + m);
-                            try{
-                                document.querySelector(css_selector[i]
-                                        ).value=values[i];
-                                good++;
-                            }catch(e){}
-                        }
-                        return good;
-                    }
-                    return run();""",
-                css_selector,
-                values,
-            )
-            == len(dict__css_selector__value)
-        )
+        for field in dict__css_selector__value:
+            is_numeric = issubclass(field.get("value").__class__, (int, float))
+
+            value = str(field.get("value"))
+            temp = ""
+            for car in value:
+                s = random.uniform(sleep_time_min, sleep_time_max)
+                temp += car
+                self._driver.execute_script("document.querySelector(arguments[0]).value= arguments[1]",
+                                            field.get("selector"),
+                                            temp if not is_numeric else float(temp))
+                time.sleep(s)
 
     def get_step(self, step):
         """
@@ -131,3 +117,103 @@ class SpyderSteps:
         assert isinstance(step, Step), "fail to get step"
 
         return step.execute()
+
+    def get_data(self, selectors, block=None, multi=True):
+        """
+        Code to get data in the page source
+        Args:
+            selectors: selectors
+            block: None or str(selector) if data is group on a selector so
+                need to select all group first before getting the data
+            multi: bool Getting multiple data ?
+
+        Returns:
+            return extracted data
+        """
+        for k in list(selectors.keys()):
+            if selectors.get(k) is None:
+                selectors.pop(k)
+
+        data = self._driver.execute_script(
+            """
+            let selectors = arguments[0];
+            let card = arguments[1];
+            let multi = arguments[2];
+            if (card){
+                let cards = [];
+                if (multi){
+                    cards = [...document.querySelectorAll(card)];
+                }else{
+                    if (document.querySelector(card)){
+                        cards = [document.querySelector(card)];
+                    }
+                }
+                return cards.map(offer=>{
+                    let data = {};
+                    Object.keys(selectors).forEach(k=>{
+                        let attr = "innerText"
+                        let select = selectors[k];
+                        let custom_attr = false;
+                        if (typeof select === 'object' && select !== null){
+                            attr = select["ATTR"];
+                            custom_attr = select["CUSTOM_ATTR"];
+                            select = select["SELECT"];
+                        }
+                        let elm = null;
+                        if (select){
+                            elm = offer.querySelector(select)
+                        }else{
+                            elm = offer;
+                        }
+                        if (elm){
+                            if (custom_attr){
+                                data[k] = (elm.getAttribute(attr)||"").trim();
+                            }else{
+                                data[k] = (elm[attr] || "").trim();
+                            }
+                        }else{
+                            data[k] = null;
+                        }
+
+                    });
+                    return data;
+                });
+            }else{
+                let data = [];
+                Object.keys(selectors).forEach(k=>{
+                    let attr = "innerText"
+                    let select = selectors[k];
+                    let custom_attr = false;
+                    if (typeof select === 'object' && select !== null){
+                        attr = select["ATTR"];
+                        custom_attr = select["CUSTOM_ATTR"];
+                        select = select["SELECT"];
+                    }
+                    let cards = [];
+                    if (multi){
+                        cards = [...document.querySelectorAll(select)];
+                    }else{
+                        if (document.querySelector(select)){
+                            cards = [document.querySelector(select)];
+                        }
+                    }
+                    cards.forEach((elm, index)=>{
+                            if (data[index]== undefined){
+                                data.push({})
+                            }
+                            if (custom_attr){
+                                data[index][k] = (elm.getAttribute(attr) || ""
+                                    ).trim();
+                            }else{
+                                data[index][k] = (elm[attr] || "").trim();
+                            }
+                    })
+                });
+                return data;
+            }
+            """,
+            selectors,
+            block or 0,
+            multi,
+        )
+        return data if multi else (data or [None])[0]

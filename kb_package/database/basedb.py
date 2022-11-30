@@ -3,11 +3,21 @@ import re
 import traceback
 import typing
 
-from pandas.core.dtypes.common import is_numeric_dtype, is_object_dtype
-
+import pandas
+from pandas.api.types import is_float_dtype, is_integer_dtype
 from kb_package.tools import INFINITE
 import os
 from kb_package import tools
+from kb_package.utils.fdataset import DatasetFactory
+from datetime import datetime as _datetime
+
+
+def _is_datetime_field(value):
+    try:
+        d = tools.CustomDateTime(value)()
+        return pandas.isnull(d) or isinstance(d, _datetime)
+    except (AssertionError, Exception):
+        return False
 
 
 class BaseDB(abc.ABC):
@@ -16,6 +26,7 @@ class BaseDB(abc.ABC):
     REGEX_SPLIT_URI = re.compile(r"(\w+?)://([\w\-.]+):([\w\-.]+)@"
                                  r"([\w\-.]+):(\d+)(?:/([\w\-.]+))?")
     LAST_SQL_CODE_RUN = None
+    MAX_BUFFER_INSERTING_SIZE = 5000
 
     def __init__(self, uri=None, **kwargs):
         """
@@ -24,8 +35,6 @@ class BaseDB(abc.ABC):
                 pwd | password: the connexion password
                 port: default 3306 (the MySQL default port)
                 host: default localhost
-
-
         """
 
         if uri is None:
@@ -62,12 +71,16 @@ class BaseDB(abc.ABC):
             "db_name": self.database_name,
             "port": self.port, "file_name": self.file_name
         })
-
-        self.communicate_info = print
-        self.communicate_error = print
+        self._print_info = print
+        self._print_error = print
+        self.set_logger(self._kwargs.get("logger"))
 
         self.db_object = None
         self._cursor_ = None
+
+    @property
+    def _get_name(self):
+        return self.__class__.__name__
 
     def __enter__(self):
         self.reload_connexion()
@@ -77,21 +90,21 @@ class BaseDB(abc.ABC):
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
             self._cursor_.close()
+        except (AttributeError, Exception):
+            pass
         finally:
             self._cursor_ = None
             self.close_connection()
 
     def set_logger(self, logger):
         if hasattr(logger, "info"):
-            self.communicate_info = logger.info
+            self._print_info = logger.info
         if hasattr(logger, "error"):
-            self.communicate_info = logger.error
-        if hasattr(logger, "exception"):
-            self.communicate_info = logger.exception
+            self._print_error = logger.error
 
         if callable(logger):
-            self.communicate_info = logger
-            self.communicate_error = logger
+            self._print_info = logger
+            self._print_error = logger
 
     @staticmethod
     @abc.abstractmethod
@@ -132,15 +145,18 @@ class BaseDB(abc.ABC):
         return cursor
 
     @staticmethod
-    def prepare_insert_data(data: list):
-        return ["%s" for _ in data]
+    def prepare_insert_data(data: dict):
+        return ["%s" for _ in data], data
 
-    def insert(self, value, table_name, cur=None, retrieve_id=False):
+    def insert(self, value: dict, table_name, cur=None, retrieve_id=False):
         part_vars = [str(k) for k in value.keys()]
-        value = [v if v is not None else "null" for v in value.values()]
+
+        xx, value = self.prepare_insert_data(value)
+
+        # value = [v if v is not None else "null" for v in value.values()]
         script = "INSERT INTO " + str(table_name) + \
                  " ( " + ",".join(part_vars) + \
-                 ") VALUES ( " + ", ".join(self.prepare_insert_data(value)) + " ) "
+                 ") VALUES ( " + ", ".join(xx) + " ) "
 
         if cur is None:
             if self._cursor_:
@@ -160,13 +176,65 @@ class BaseDB(abc.ABC):
             self.commit()
         return return_object
 
-    def insert_many(self, data, table_name):
+    # @abc.abstractmethod
+    def db_types(self):
+        return "SQL"
+
+    def insert_many(self, data: typing.Union[list, pandas.DataFrame, str], table_name, verbose=True, ftype=None,
+                    **kwargs):
         if self._cursor_:
             cursor = self._cursor_
         else:
             cursor = self.get_cursor()
-        for d in data:
-            self.insert(d, table_name, cursor)
+
+        dataset = DatasetFactory(data, **kwargs).dataset
+        size = dataset.shape[0]
+        if not size:
+            return
+        # MAX_BUFFER_INSERTING_SIZE
+        if not isinstance(ftype, dict):
+            if len(dataset.columns) == 1 and isinstance(ftype, str):
+                ftype = {dataset.columns[0]: ftype}
+            else:
+                ftype = {}
+        types = {}
+        for field in dataset.columns:
+            types[field] = lambda x: x
+            if is_integer_dtype(dataset[field]) and (ftype.get(ftype) in ["int", None]):
+                types[field] = int
+            if is_float_dtype(dataset[field]):
+                types[field] = float
+
+        dataset = dataset.to_dict("records")
+        first_value = dataset[0]
+        part_vars = [str(k) for k in first_value.keys()]
+
+        xx, value = self.prepare_insert_data(first_value)
+
+        # value = [v if v is not None else "null" for v in value.values()]
+        script = "INSERT INTO " + str(table_name) + \
+                 " ( " + ",".join(part_vars) + \
+                 ") VALUES ( " + ", ".join(xx) + " ) "
+        if verbose:
+            tools.ConsoleFormat.progress(0)
+        for t, buffer in tools.get_buffer(dataset, max_buffer=self.MAX_BUFFER_INSERTING_SIZE):
+            try:
+                self._execute(cursor, script,
+                              params=[
+                                  {
+                                      k: types[k](v)
+                                      if not pandas.isnull(v) else None
+                                      for k, v in row.items()
+                                  } for row in buffer], method="many")
+                if verbose:
+                    tools.ConsoleFormat.progress(100 * t)
+            except Exception as ex:
+                # print("\n", "->Got error with the buffer: ", buffer)
+                traceback.print_exc()
+                self._print_error(ex)
+                return
+        if verbose:
+            print("... Finish ...")
         self.commit()
 
     def get_cursor(self):
@@ -189,13 +257,13 @@ class BaseDB(abc.ABC):
         """
         try:
             self.db_object.close()
-        except AttributeError:
+        except (AttributeError, Exception):
             pass
 
     @staticmethod
     @abc.abstractmethod
     def _execute(cursor, script, params=None, ignore_error=False,
-                 connexion=None):
+                 connexion=None, method="single", **kwargs):
         """
         use to make preparing requests
         Args:
@@ -252,7 +320,7 @@ class BaseDB(abc.ABC):
             print(self.LAST_SQL_CODE_RUN)
             print("**" * 10)
             traceback.print_exc()
-            self.communicate_error(ex)
+            self._print_error(ex)
 
             if not ignore_error:
                 raise Exception(ex)
@@ -270,44 +338,105 @@ class BaseDB(abc.ABC):
     def get_add_increment_field_code(field_name="id"):
         return str(field_name or "id") + " INTEGER PRIMARY KEY AUTOINCREMENT"
 
-    def create_table(self, arg: str, table_name=None, auto_increment_field=False, auto_increment_field_name=None):
+    def create_table(self, arg: str, table_name=None, if_not_exists=True,
+                     auto_increment_field=False,
+                     auto_increment_field_name=None,
+                     columns=None, ftype=None, verbose=True, **kwargs):
+        if verbose:
+            print = self._print_info
+        else:
+            print = lambda *args: None
         with self:
-            if os.path.exists(arg):
-                dataset = tools.read_datafile(arg)
-                if not len(dataset.columns):
-                    return
-                table_name = tools.format_var_name(table_name or "new_table")
-                table_script = f"CREATE TABLE IF NOT EXISTS {table_name}("
-                if auto_increment_field:
-                    table_script += "\n\t" + self.get_add_increment_field_code(auto_increment_field_name) + ","
-                equivalent = {}
-                for index, col in enumerate(dataset.columns):
-                    field = tools.format_var_name(col)
-                    equivalent[col] = field
-                    if index > 0:
-                        table_script += ","
-                    if is_numeric_dtype(dataset[col]):
-                        table_script += f"\n\t{field} int"
-                    elif is_object_dtype(dataset[col]):
-                        size = dataset[col].apply(lambda x: len(x)).max()
-                        if size > 1024 * 1024:
-                            type_ = 'text'
-                        else:
-                            type_ = f"varchar({size or 255})"
-                        table_script += f"\n\t{field} {type_}"
-                table_script += "\n)"
-                print(table_script)
-                self.run_script(table_script, retrieve=False)
-                data = []
-                max_buffer_size = 200
-                for _, row in dataset.iterrows():
-                    data.append({field: row[col] for col, field in equivalent.items()})
-                    if len(data) >= max_buffer_size:
-                        self.insert_many(data, table_name=table_name)
-                        data = []
-                print("Finish")
-            else:
+            if isinstance(arg, pandas.DataFrame):
+                dataset = arg
+            elif isinstance(arg, str) and os.path.exists(arg):
+                dataset = DatasetFactory(arg, **kwargs).dataset
+
+            elif isinstance(arg, str):
                 self.run_script(arg)
+                return
+            else:
+                raise TypeError("Bad value of arg given: %s" % arg)
+        if not len(dataset.columns):
+            return
+        if not isinstance(ftype, dict):
+            ftype = {}
+        if columns is not None:
+            if isinstance(columns, list):
+                dataset = dataset.loc[:, columns]
+            elif isinstance(columns, dict):
+                dataset = dataset.loc[:, columns.keys()]
+                dataset.rename(columns=columns, inplace=True)
+        print("got %s data from file given" % dataset.shape[0])
+        print(dataset)
+        table_name = tools.format_var_name(table_name or "new_table")
+        table_script = f"CREATE TABLE " \
+                       f"{'IF NOT EXISTS' if (if_not_exists and 'oracle' not in self._get_name.lower()) else ''} " \
+                       f"{table_name}("
+        if auto_increment_field:
+            table_script += "\n\t" + self.get_add_increment_field_code(auto_increment_field_name) + ","
+        equivalent = {}
+        types = {}
+        for index, col in enumerate(dataset.columns):
+            field = tools.format_var_name(col) or "field"+str(index)
+
+            equivalent[col] = field
+            types[field] = lambda x: x
+            if index > 0:
+                table_script += ","
+
+            if is_integer_dtype(dataset[col]) and (
+                    is_integer_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
+                table_script += f"\n\t{field} int"
+                types[field] = int
+            elif (is_float_dtype(dataset[col]) or is_integer_dtype(dataset[col])) and (
+                    is_float_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
+                table_script += f"\n\t{field} float"
+                types[field] = float
+            else:
+                if ftype.get(col) is not None:
+                    table_script += f"\n\t{field} {ftype.get(col)}"
+
+                if dataset[col].apply(lambda val: not _is_datetime_field(val)).any() and (
+                        "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
+                ):
+                    dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
+                    size = dataset[col].apply(lambda x: len(x)).max()
+                    if size > 255:
+                        type_ = 'text'
+                    else:
+                        if size > 3:
+                            size = max(255, size)
+                        type_ = f"varchar({size or 255})"
+
+                else:
+                    if dataset[col].apply(lambda val: tools.CustomDateTime(str(val)).is_datetime).any():
+                        type_ = "datetime"
+                        dataset[col] = dataset[col].apply(
+                            lambda val: tools.CustomDateTime(str(val), default=None)())
+                    else:
+                        dataset[col] = dataset[col].apply(
+                            lambda val: tools.CustomDateTime(str(val), default=None).date)
+                        type_ = "date"
+                table_script += f"\n\t{field} {type_}"
+            dataset.rename(columns={col: field}, inplace=True)
+
+        table_script += "\n)"
+        if if_not_exists and "oracle" in self._get_name.lower():
+            try:
+                self.run_script("select * from "+table_name, limit=1)
+                print("The Table specify were exists: Going to drop it")
+                self.run_script("drop table " + table_name, retrieve=False)
+                self.commit()
+            except:
+                pass
+
+        print("Going to create table with the query:", table_script)
+        self.run_script(table_script, retrieve=False)
+
+        # dataset.to_sql(con=self.db_object)
+        # INSERTING DATASET
+        self.insert_many(dataset, table_name=table_name)
 
     def dump(self, dump_file='dump.sql'):
         pass
