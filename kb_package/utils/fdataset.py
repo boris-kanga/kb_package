@@ -112,7 +112,12 @@ class DatasetFactory:
             if k in ("sheet_name", "header", "names", "index_col",
                      "usecols", "na_values", "engine", "dtype", "encoding")
         }
-        if bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN):
+        try:
+            is_hidden = bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
+        except AttributeError:
+            # on Linux
+            is_hidden = False
+        if is_hidden:
             dataset = pandas.DataFrame()
         elif os.path.splitext(file_path)[1][1:].lower() in ["xls", "xlsx", "xlsm", "xlsb"]:
             dataset = pandas.read_excel(file_path, **kwargs)
