@@ -394,7 +394,9 @@ class BaseDB(abc.ABC):
                 table_script += f"\n\t{field} float"
                 types[field] = float
             else:
+                got = False
                 if ftype.get(col) is not None:
+                    got = True
                     table_script += f"\n\t{field} {ftype.get(col)}"
 
                 if dataset[col].apply(lambda val: not _is_datetime_field(val)).any() and (
@@ -418,7 +420,8 @@ class BaseDB(abc.ABC):
                         dataset[col] = dataset[col].apply(
                             lambda val: tools.CustomDateTime(str(val), default=None).date)
                         type_ = "date"
-                table_script += f"\n\t{field} {type_}"
+                if not got:
+                    table_script += f"\n\t{field} {type_}"
             dataset.rename(columns={col: field}, inplace=True)
 
         table_script += "\n)"
