@@ -1262,7 +1262,7 @@ def get_buffer(obj, max_buffer=200):
 
 class BasicTypes:
     EMAIL_RE = r"^([\w\-\.]+@(?:[\w-]+\.)+[\w-]{2,4})$"
-    NUMBER_RE = r"^(?:\(?00|\+)?(?:%(indicatif)s\)?)?(\d{1,2})?(\d{8})$"
+    NUMBER_RE = r"^\(?(?:00|\+)?(?:%(indicatif)s\)?)?(\d{1,2})?(\d{8})$"
 
     @staticmethod
     def is_phone_number(number, only_orange_number=True, permit_fixe=False, indicatif=225):
