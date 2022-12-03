@@ -976,7 +976,7 @@ class CModality:
                 else:
                     modal = list(rest_modal)
 
-                res = self._regex(remove_space=remove_space, modal=modal).match(check)
+                res = self._regex(remove_space=remove_space, modal=modal).search(check)
                 print("got res", res)
                 if res:
                     print(res.groups())
