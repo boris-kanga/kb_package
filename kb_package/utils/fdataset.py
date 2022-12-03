@@ -142,6 +142,7 @@ class DatasetFactory:
             except UnicodeDecodeError as exc:
                 if kwargs["encoding"] != "latin1":
                     print("We force encoding to latin1")
+                    kwargs["encoding"] = "latin1"
                     dataset = pandas.read_csv(file_path, **kwargs)
                 else:
                     raise exc
