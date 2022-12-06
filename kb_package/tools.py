@@ -768,7 +768,7 @@ class CustomDateTime:
             last_car_is_percent = False
             final_format = ""
 
-            for car in re.split("(?<![A-Za-zÀ-ÖØ-öø-ÿ%])(" + REGEX_FRENCH_CHARACTER + ")(?!" +
+            for car in re.split("(?<![A-Za-zÀ-ÖØ-öø-ÿ])(" + REGEX_FRENCH_CHARACTER + ")(?!" +
                                 REGEX_FRENCH_CHARACTER + ")", d_format):
                 if last_car_is_percent:
                     pass

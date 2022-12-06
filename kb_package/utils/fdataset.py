@@ -33,6 +33,9 @@ class DatasetFactory:
                 return default
             raise ex
 
+    def __setitem__(self, key, value):
+        self.dataset.__setitem__(key, value)
+
     def __getitem__(self, item):
         return self.dataset.__getitem__(item)
 
