@@ -134,7 +134,7 @@ def processing(file=None, save_file=None, index=None):
                         futures.append(executor.submit(working, index=index, row=row, control=MAIN_CONTROL))
                     for dd in thread.as_completed(futures):
                         if dd is not None:
-                            data.append(dd)
+                            data.append(dd.result())
                 tools.ConsoleFormat.progress(100 * t)
                 Cdict._to_json(data, save_file)
         except (requests.exceptions.ConnectionError, Exception) as ex:

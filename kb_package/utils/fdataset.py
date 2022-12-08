@@ -18,12 +18,7 @@ class DatasetFactory:
     def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict], **kwargs):
         # cls = self.__class__
         # cls.from_file.__code__.co_varnames
-        if isinstance(dataset, str):
-            dataset = self.from_file(dataset, **kwargs).dataset
-        if not isinstance(dataset, pandas.DataFrame):
-            dataset = pandas.DataFrame(dataset, **{k: v for k, v in kwargs.items()
-                                                   if k in ["columns", "index", "dtype"]})
-        self._source = dataset
+        self._source = self.from_file(dataset, **kwargs).dataset
 
     def __getattr__(self, item, default=None):
         try:
@@ -110,45 +105,52 @@ class DatasetFactory:
 
     @classmethod
     def from_file(cls, file_path, sep=None, drop_duplicates=False, drop_duplicates_on=None, columns=None, **kwargs):
-        kwargs = {
-            k: v for k, v in kwargs.items()
-            if k in ("sheet_name", "header", "names", "index_col",
-                     "usecols", "na_values", "engine", "dtype", "encoding")
-        }
-        try:
-            is_hidden = bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
-        except AttributeError:
-            # on Linux
-            is_hidden = False
-        if is_hidden:
-            dataset = pandas.DataFrame()
-        elif os.path.splitext(file_path)[1][1:].lower() in ["xls", "xlsx", "xlsm", "xlsb"]:
-            dataset = pandas.read_excel(file_path, **kwargs)
-        else:
 
-            if "encoding" not in kwargs:
-                kwargs["encoding"] = "utf-8"
-            if sep is None:
-                with open(file_path, encoding='latin1') as file:
-                    got = True
-                    for _ in range(5):
-                        line = file.readline().strip()
-                        if line and ";" not in line:
-                            got = False
-                            break
-                    if got:
-                        kwargs["sep"] = ";"
-            else:
-                kwargs["sep"] = sep
+        if isinstance(file_path, str):
             try:
-                dataset = pandas.read_csv(file_path, **kwargs)
-            except UnicodeDecodeError as exc:
-                if kwargs["encoding"] != "latin1":
-                    print("We force encoding to latin1")
-                    kwargs["encoding"] = "latin1"
-                    dataset = pandas.read_csv(file_path, **kwargs)
+                is_hidden = bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
+            except AttributeError:
+                # on Linux
+                is_hidden = False
+            if is_hidden:
+                dataset = pandas.DataFrame()
+            elif os.path.splitext(file_path)[1][1:].lower() in ["xls", "xlsx", "xlsm", "xlsb"]:
+                kwargs = {
+                    k: v for k, v in kwargs.items()
+                    if k in pandas.read_excel.__wrapped__.__code__.co_varnames
+                }
+                dataset = pandas.read_excel(file_path, **kwargs)
+            else:
+                kwargs = {
+                    k: v for k, v in kwargs.items()
+                    if k in pandas.read_csv.__wrapped__.__code__.co_varnames
+                }
+                if "encoding" not in kwargs:
+                    kwargs["encoding"] = "utf-8"
+                if sep is None:
+                    with open(file_path, encoding='latin1') as file:
+                        got = True
+                        for _ in range(5):
+                            line = file.readline().strip()
+                            if line and ";" not in line:
+                                got = False
+                                break
+                        if got:
+                            kwargs["sep"] = ";"
                 else:
-                    raise exc
+                    kwargs["sep"] = sep
+                try:
+                    dataset = pandas.read_csv(file_path, **kwargs)
+                except UnicodeDecodeError as exc:
+                    if kwargs["encoding"] != "latin1":
+                        print("We force encoding to latin1")
+                        kwargs["encoding"] = "latin1"
+                        dataset = pandas.read_csv(file_path, **kwargs)
+                    else:
+                        raise exc
+        else:
+            dataset = pandas.DataFrame(file_path, **{k: v for k, v in kwargs.items()
+                                                     if k in ["index", "dtype"]})
 
         if columns is not None:
             if isinstance(columns, list):
