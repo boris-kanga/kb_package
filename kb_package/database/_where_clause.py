@@ -150,7 +150,7 @@ class Where(ast.NodeTransformer):
                 op = node.ops[0]
                 return {
                     Where.get_node_value(node.left, add=""): {
-                        Where.MONGO_WHERE_CLAUSE_EQ.get(op.__class__): Where.get_node_value(node.comparators[0])
+                        Where.MONGO_WHERE_CLAUSE_EQ.get(type(op)): Where.get_node_value(node.comparators[0])
                     }
                 }
         if isinstance(node, ast.Call):
