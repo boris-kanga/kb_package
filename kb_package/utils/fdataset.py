@@ -5,20 +5,28 @@ Use like pandas.DataFrame extension.
 
 """
 from __future__ import annotations
+import ast
 
 import os
+import re
 import stat
 import typing
 
 import pandas
 from pandas.core.dtypes.common import is_numeric_dtype, is_object_dtype
+import kb_package.tools as tools
 
 
 class DatasetFactory:
-    def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict], **kwargs):
+    def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict] = None, **kwargs):
         # cls = self.__class__
         # cls.from_file.__code__.co_varnames
-        self._source = self.from_file(dataset, **kwargs).dataset
+        if dataset is None:
+            self._source = pandas.DataFrame()
+        elif not isinstance(dataset, pandas.DataFrame):
+            self._source = self.from_file(dataset, **kwargs).dataset
+        else:
+            self._source = dataset
 
     def __getattr__(self, item, default=None):
         try:
@@ -48,7 +56,7 @@ class DatasetFactory:
             other_ref = logic["exclude"]
         elif isinstance(logic, (list, tuple)):
             source_ref = logic[0]
-            other_ref = (logic + [source_ref])[1]
+            other_ref = (list(logic) + [source_ref])[1]
         elif isinstance(logic, str):
             source_ref = logic
             other_ref = logic
@@ -59,9 +67,10 @@ class DatasetFactory:
             other = pandas.DataFrame({other_ref: other})
         elif isinstance(other, str):
             other = DatasetFactory.from_file(other).dataset
+        elif isinstance(other, DatasetFactory):
+            other = other.dataset
         if not isinstance(other, pandas.DataFrame):
             raise ValueError("Bad value of other given: %s" % other)
-
         return other, source_ref, other_ref
 
     def __str__(self):
@@ -87,8 +96,9 @@ class DatasetFactory:
                                how="left",
                                indicator=True,
                                suffixes=suffixes or ("", "_y"))
-
-        result = result.loc[result._merge == op, columns or result.columns]
+        if columns is None:
+            columns = result.columns
+        result = result.loc[result._merge == op, columns]
         return result.reset_index(drop=True)
 
     def exclude(self,
@@ -170,18 +180,209 @@ class DatasetFactory:
                                         subset=drop_duplicates_on, ignore_index=True)
         return cls(dataset)
 
-    def sql_query(self):
+    def __add__(self, other):
+        if self._source.empty or (len(self._source.columns) == len(other.columns) and all(self._source.columns == other.columns)):
+            return DatasetFactory(pandas.concat([self._source, other], ignore_index=True, sort=False))
+        return self._source.__add__(other)
+
+    __radd__ = __add__
+
+    def query(self, query, *, method="parse", **kwargs):
         """
 
+        """
+        query = query.strip()
+        if not len(query) or self._source.empty:
+            return self._source
+        if method in ("parse", 1):
+
+            hard, query = QueryTransformer().process(query)
+            print(query, hard)
+            if hard:
+                res = tools.safe_eval_math(query, dataset=self._source, method="exec")
+                if kwargs.get("inplace"):
+                    self._source = res
+                    return
+                return res
+            else:
+                return self._source.query(query, **kwargs)
+        elif method in ("sql", 2):
+
+            from kb_package.database.sqlitedb import SQLiteDB
+            sql = SQLiteDB()
+            sql.create_table(self.dataset)
+
+            res = pandas.DataFrame(sql.run_script("select * from new_table where " + query, dict_res=True))
+            if kwargs.get("inplace"):
+                self._source = res
+                return
+            return res
+
+    def sampling(self, d: str | int):
+        """
+        return (statistically) representative sample
         """
         pass
 
-    def sampling(self, d: str | int):
-        self._source.sample()
+
+class QueryTransformer(ast.NodeTransformer):
+    PREFIX = "dataset."
+
+    def visit_Name(self, node):
+        if not hasattr(self, "list_name"):
+            self.list_name = []
+        # node.id = QueryTransformer.PREFIX + node.id
+        if node.id.lower() not in ("null", "none"):
+            self.list_name.append(node)
+        return node
+
+    def visit_BoolOp(self, node):
+        right = None
+        for left in node.values[::-1]:
+            left = self.visit(left)
+            if right is None:
+                right = left
+                continue
+            right = ast.BinOp(left, ast.BitAnd() if isinstance(node.op, ast.And) else ast.BitOr(), right)
+        if right is None:
+            right = node
+        return ast.copy_location(right, node)
+
+    def visit_UnaryOp(self, node):
+        node.op = ast.Invert()
+        node.operand = self.visit(node.operand)
+        return node
+
+    def visit_Call(self, node):
+        if node.func.id.lower() in ("like", "lower", "upper", "trim", "replace"):
+            self._hard = True
+            node.func.id = node.func.id.lower()
+            args = []
+            for d in node.args:
+                d = self.visit(d)
+                args.append(d)
+            node.args = args
+        else:
+            raise ValueError("Got unknown function")
+        return node
+
+    def visit_Compare(self, node):
+        node.left = self.visit(node.left)
+        comparators = []
+        for val in node.comparators:
+            val = self.visit(val)
+            comparators.append(val)
+        node.comparators = comparators
+
+        if isinstance(node.ops[0], (ast.Is, ast.IsNot)):
+            if isinstance(node.comparators[0], ast.Tuple):
+                # need to be 2 size -> (between _min and _max)
+                self._hard = True
+                _min, _max = node.comparators[0].elts
+
+                result = ast.BoolOp(ast.And(), [
+                    ast.Compare(node.left, [ast.GtE()], [_min]),
+                    ast.Compare(node.left, [ast.LtE()], [_max])
+                ])
+
+                if isinstance(node.ops[0], ast.IsNot):
+                    result = ast.UnaryOp(ast.Not(), result)
+                result = self.visit(result)
+                return ast.copy_location(result, node)
+            elif isinstance(node.comparators[0], ast.Str):
+                # field is "ksksjjsjsj" -> field like "djdjdj"
+                self._hard = True
+                result = ast.Call(ast.Name("like", ast.Load()),
+                                  [node.left,
+                                   node.comparators[0],
+                                   ast.Constant(isinstance(node.ops[0], ast.IsNot))
+                                   ], []
+                                  )
+                return ast.copy_location(result, node)
+            else:
+                if node.comparators[0].id.lower() in ("null", "none"):
+                    self._hard = True
+                    result = ast.Compare(node.left,
+                                         [ast.Eq() if isinstance(node.ops[0], ast.IsNot) else ast.NotEq()],
+                                         [node.left])
+
+                    return ast.copy_location(result, node)
+
+        if isinstance(node.ops[0], (ast.In, ast.NotIn)):
+            # print(ast.dump(node, indent=4))
+            result = ast.Call(ast.Name("in_func", ast.Load()),
+                              [node.left,
+                               node.comparators[0],
+                               ast.Constant(isinstance(node.ops[0], ast.NotIn))
+                               ], []
+                              )
+            return ast.copy_location(result, node)
+
+        return node
+
+    def process(self, node: str | ast.AST, verbose=False):
+        if isinstance(node, str):
+            query, quoted_text_dict = tools.replace_quoted_text(node)
+            # replace = by ==
+            query = re.sub(r"(?<!=)=(?!=)", "==", query, flags=re.I)
+            # replace <> by !=
+            query = query.replace("<>", "!=")
+
+            # extra -> like and not like
+            query = re.sub(r"\s+not\s+like\s+", " is not ", query, flags=re.I)
+            query = re.sub(r"\s+like\s+", " is ", query, flags=re.I)
+            # between
+            query = re.sub(r"\s+(not\s+)?between\s+(\w+)\s+and\s+(\w+)", r" is \1 (\2, \3) ", query, flags=re.I)
+
+            # keyword case
+            for keyword in ["in", "is", "and", "or", "not"]:
+                query = re.sub(keyword, keyword, query, flags=re.I)
+            # consider the query where not hard
+            old_query = query
+
+            # for hard queries -- modifying of query
+            # query = re.sub(r"\s+or\s+", " | ", query, flags=re.I)
+            # query = re.sub(r"\s+and\s+", " & ", query, flags=re.I)
+
+            for k in quoted_text_dict:
+                query = query.replace(k, quoted_text_dict[k])
+                old_query = old_query.replace(k, quoted_text_dict[k])
+            node = ast.parse(query)
+        else:
+            old_query = ast.unparse(node)
+        if not all([isinstance(n, ast.Expr) for n in node.body]):
+            raise ValueError("Bad value given")
+        tree = self.visit(node)
+        if not hasattr(self, "list_name"):
+            list_name = []
+        else:
+            list_name = self.list_name
+
+        if not hasattr(self, "_hard"):
+            _hard = False
+        else:
+            _hard = self._hard
+        if _hard:
+            for name in list_name:
+                if not name.id.startswith(QueryTransformer.PREFIX):
+                    name.id = QueryTransformer.PREFIX + name.id
+            res = ast.unparse(tree)
+            with open(os.path.join(os.path.dirname(__file__), "_query_func.py")) as py:
+                pycode = py.read()
+            final_query = "result = " + QueryTransformer.PREFIX[:-1] + "[" + res + "]"
+            pycode += final_query
+            if verbose:
+                print("Got final script -->", QueryTransformer.PREFIX[:-1] + "[" + res + "]")
+            # code = compile(tree, "<string>", "exec")
+            # exec(code)
+        else:
+            # here we consider the query is not hard so returns it
+            pycode = old_query
+
+        return _hard, pycode
 
 
 if __name__ == '__main__':
-    p = DatasetFactory(
-        r"C:\Users\FBYZ6263\Documents\WORK_FOLDER\CVM\Push SMS\Databases\Recrutement_New Community Plus_B2B.csv",
-        sep=";")
-    print(p.dataset)
+    p = DatasetFactory(r"C:\Users\FBYZ6263\Documents\OWN\kb_package\temp_test.csv")
+    print(p.query("TYPE_CLIENT_ENDPERIOD IN ('HYBRID', 'POSTPAID') ANd RECHARGEMENT_TOTAL NOT between 300 AND 500"))
+    # print(p.query("VOIX_MIN_TOT = 0 and not TYPE_CLIENT_ENDPERIOD not like '.*?PRE.*'"))
