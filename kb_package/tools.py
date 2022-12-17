@@ -13,6 +13,7 @@ import sys
 import time
 import tarfile
 import traceback
+import typing
 import zipfile
 from itertools import permutations
 from typing import Union
@@ -41,13 +42,18 @@ def force_delete_file(action, name, exc):
     os.remove(name)
 
 
-def safe_eval_math(calculation, params=None, **kwargs):
+def safe_eval_math(calculation, params=None, method="expr", result_var="result", **kwargs):
     import numexpr
     if not isinstance(params, dict):
         params = {}
     params.update(kwargs)
     for k, v in params.items():
         locals()[k] = v
+    if method == "eval":
+        return eval(calculation)
+    if method == "exec":
+        exec(calculation)
+        return locals().get(result_var)
     res = ""
     try:
         res = numexpr.evaluate(calculation)
@@ -412,7 +418,7 @@ class Cdict(dict):
 
     def get(self, item, default=None):
         key = self.key_eq.get(str(item).lower()) or item
-        return super().__getitem__(key)
+        return super().get(key, default)
 
     def __getitem__(self, item):
         key = self.key_eq.get(str(item).lower()) or item
@@ -1244,25 +1250,96 @@ class ConsoleFormat:
             print("|" + fill * round(100 * size / 100) + "|", finish_msg, end="\n")
 
 
-def get_buffer(obj, max_buffer=200):
+def get_buffer(obj, max_buffer=200, vv=True) -> typing.Union[tuple, typing.Any]:
     i = 0
     if hasattr(obj, "shape"):
         size = max(int(obj.shape[0] / max_buffer), 1)
     else:
         size = max(int(len(obj) / max_buffer), 1)
     for i in range(size):
-        yield i / size, obj[i * max_buffer: (i + 1) * max_buffer]
+        if vv:
+            yield i / size, obj[i * max_buffer: (i + 1) * max_buffer]
+        else:
+            yield obj[i * max_buffer: (i + 1) * max_buffer]
     res = obj[(i + 1) * max_buffer:]
     if hasattr(res, "shape"):
         if not res.shape[0]:
             return
-    elif len(res):
+    elif not len(res):
+        return
+    if vv:
         yield (i + 1) / size, res
+    else:
+        yield res
+
+
+def format_number(nb=1000, m_sep=" "):
+    nb = str(nb).split(".")
+    return (
+            m_sep.join([x for _, x in get_buffer(nb[0][::-1], 3)])[::-1] +
+            ("." + nb[1] if len(nb) > 1 else "")
+    )
 
 
 class BasicTypes:
     EMAIL_RE = r"^([\w\-\.]+@(?:[\w-]+\.)+[\w-]{2,4})$"
     NUMBER_RE = r"^\(?(?:00|\+)?(?:%(indicatif)s\)?)?(\d{1,2})?(\d{8})$"
+
+    @staticmethod
+    def pnn_ci(number, plus="+", only_orange=False, permit_fixe=True, *, reseau=None):
+        number = str(number).replace(" ", "").replace("-", "")
+
+        nums = {
+            "05": ["04", "05", "06", "44", "45", "46", "54", "55", "56",
+                   "64", "65", "66", "74", "75", "76", "84", "85", "86",
+                   "94", "95", "96"],
+            "01": ["01", "02", "03", "40", "41", "42", "43", "50",
+                   "51", "52", "53", "70", "71", "72", "73"],
+
+            "07": ["07", "08", "09", "47", "48", "49", "57", "58", "59",
+                   "67", "68", "69", "77", "78", "79", "87", "88", "89",
+                   "97", "98"],
+        }
+        reseaux = Cdict(orange="07", mtn="05", moov="01")
+        ban_reseau = set()
+        if only_orange:
+            ban_reseau = {"01", "05"}
+        elif reseau is not None:
+            if BasicTypes.is_iterable(reseau) and not isinstance(reseau, str):
+                ban_reseau = set(k for k in nums if k not in [(reseaux.get(r) or r) for r in reseau])
+            else:
+                ban_reseau = set(k for k in nums if k != (reseaux.get(reseau) or reseau))
+        for k in ban_reseau:
+            nums.pop(k, "")
+        check = re.match(BasicTypes.NUMBER_RE % {"indicatif": 225}, str(number).split(".")[0].split(",")[0])
+        if check:
+            check = check.groups()
+            extension = check[0]
+            if extension is None:
+                # numero avec 8 chiffre
+                extension = check[1][:2]
+                # ancienne numérotation
+                if int(extension) in list(range(20, 25)) + list(range(30, 37)):
+                    # Fixe
+                    if not permit_fixe:
+                        return None
+                    if check[1][2] == "8" and not only_orange:
+                        # MOOV - 21
+                        return plus + "22521" + check[1]
+                    elif check[1][2] == "0" and not only_orange:
+                        # MTN - 25
+                        return plus + "22525" + check[1]
+                    else:
+                        # ORANGE - 27
+                        return plus + "22527" + check[1]
+                else:
+                    # mobile
+                    for num in nums:
+                        if extension in nums.get(num):
+                            return plus + "225" + num + check[1]
+            elif extension in ("7,07,27" + ("" if only_orange else ",21,25,1,01,5,05")).split(","):
+                return plus + "225" + f"{extension:0>2}" + check[1]
+        return None
 
     @staticmethod
     def is_phone_number(number, only_orange_number=True, permit_fixe=False, indicatif=225):
@@ -1307,6 +1384,23 @@ class BasicTypes:
     @staticmethod
     def is_email(value):
         return re.match(BasicTypes.EMAIL_RE, value)
+
+
+def replace_quoted_text(text, quotes="\"'"):
+    # original_text = text
+    modified_text = ""
+    strings_replaced = {}
+
+    # string_regex = fr"([{quotes}]).*?\1(?![A-Za-zÀ-ÖØ-öø-ÿ])"
+    string_regex = fr"([{quotes}])(?:(?=(\\?))\2.)*?\1"
+    res = re.search(string_regex, text, flags=re.S)
+    while res is not None:
+        strings_replaced["kb_vars_" + str(len(strings_replaced))] = text[res.span()[0]: res.span()[1]]
+        modified_text += text[: res.span()[0]] + "kb_vars_" + str(len(strings_replaced) - 1)
+        text = text[res.span()[1]:]
+        res = re.search(string_regex, text, flags=re.S)
+    modified_text += text
+    return modified_text, strings_replaced
 
 
 if __name__ == "__main__":
