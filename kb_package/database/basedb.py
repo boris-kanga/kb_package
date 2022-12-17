@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 import re
 import traceback
@@ -200,9 +202,11 @@ class BaseDB(abc.ABC):
         types = {}
         for field in dataset.columns:
             types[field] = lambda x: x
-            if is_integer_dtype(dataset[field]) and (ftype.get(ftype) in ["int", None]):
+            if is_integer_dtype(dataset[field]) and (
+                    is_integer_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
                 types[field] = int
-            if is_float_dtype(dataset[field]):
+            elif (is_float_dtype(dataset[field]) or is_integer_dtype(dataset[field])) and (
+                    is_float_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
                 types[field] = float
 
         dataset = dataset.to_dict("records")
@@ -338,7 +342,7 @@ class BaseDB(abc.ABC):
     def get_add_increment_field_code(field_name="id"):
         return str(field_name or "id") + " INTEGER PRIMARY KEY AUTOINCREMENT"
 
-    def create_table(self, arg: str, table_name=None, if_not_exists=True,
+    def create_table(self, arg: str | pandas.DataFrame, table_name=None, if_not_exists=True,
                      auto_increment_field=False,
                      auto_increment_field_name=None,
                      columns=None, ftype=None, verbose=True, **kwargs):
