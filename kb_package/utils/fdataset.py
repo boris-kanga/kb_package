@@ -11,10 +11,13 @@ import os
 import re
 import stat
 import typing
+import inspect
 
+import numpy
 import pandas
 from pandas.core.dtypes.common import is_numeric_dtype, is_object_dtype
 import kb_package.tools as tools
+import kb_package.utils._query_func as query_func
 
 
 class DatasetFactory:
@@ -161,16 +164,13 @@ class DatasetFactory:
         else:
             dataset = pandas.DataFrame(file_path, **{k: v for k, v in kwargs.items()
                                                      if k in ["index", "dtype"]})
-
         if columns is not None:
             if isinstance(columns, list):
                 dataset = dataset.loc[:, columns]
             elif isinstance(columns, dict):
                 dataset = dataset.loc[:, columns.keys()]
                 dataset.rename(columns=columns, inplace=True)
-
         if drop_duplicates:
-
             drop_duplicates_on = ([drop_duplicates_on]
                                   if isinstance(drop_duplicates_on, str)
                                   else drop_duplicates_on)
@@ -181,7 +181,8 @@ class DatasetFactory:
         return cls(dataset)
 
     def __add__(self, other):
-        if self._source.empty or (len(self._source.columns) == len(other.columns) and all(self._source.columns == other.columns)):
+        if self._source.empty or (
+                len(self._source.columns) == len(other.columns) and all(self._source.columns == other.columns)):
             return DatasetFactory(pandas.concat([self._source, other], ignore_index=True, sort=False))
         return self._source.__add__(other)
 
@@ -195,11 +196,10 @@ class DatasetFactory:
         if not len(query) or self._source.empty:
             return self._source
         if method in ("parse", 1):
-
             hard, query = QueryTransformer().process(query)
-            print(query, hard)
             if hard:
-                res = tools.safe_eval_math(query, dataset=self._source, method="exec")
+                params = QueryTransformer.PERMIT_FUNC
+                res = tools.safe_eval_math(query, params=params, dataset=self._source, method="exec")
                 if kwargs.get("inplace"):
                     self._source = res
                     return
@@ -218,6 +218,17 @@ class DatasetFactory:
                 return
             return res
 
+    def apply(self, func, convert_dtype=True, *, args=(), **kwargs):
+        if not isinstance(func, str):
+            return self._source.apply(func, convert_dtype, args=args, **kwargs)
+        query = "def apply(serie): return " + QueryTransformer("serie", hard=True).process(func, _for="apply") +"\n"
+        query += "result = dataset.apply(apply, axis=1) \n"
+        params = QueryTransformer.PERMIT_FUNC
+        print("Going to run", query)
+        params["pnn_ci"] = numpy.vectorize(lambda f, plus="+", reseaux="ORANGE", permit_fix=False: tools.BasicTypes.pnn_ci(
+            f, plus, permit_fixe=permit_fix, reseau=reseaux))
+        return tools.safe_eval_math(query, params=params, dataset=self._source, method="exec")
+
     def sampling(self, d: str | int):
         """
         return (statistically) representative sample
@@ -227,11 +238,30 @@ class DatasetFactory:
 
 class QueryTransformer(ast.NodeTransformer):
     PREFIX = "dataset."
+    PERMIT_FUNC = {
+        k: func
+        for k, func in inspect.getmembers(
+            query_func,
+            lambda m: (callable(m) and (
+                    m.__module__ == query_func.__name__ or
+                    isinstance(m, numpy.vectorize))))
+    }
+
+    def __init__(self, *args, hard=False):
+        super().__init__()
+        if len(args):
+            self.PREFIX = args[0]
+            if not self.PREFIX.endswith("."):
+                self.PREFIX += "."
+        self._hard = hard
+        self._use_attr = False
+        self.list_name = []
+
+    def visit_Attribute(self, node):
+        self._use_attr = True
 
     def visit_Name(self, node):
-        if not hasattr(self, "list_name"):
-            self.list_name = []
-        # node.id = QueryTransformer.PREFIX + node.id
+        # print("name", ast.dump(node, indent=2))
         if node.id.lower() not in ("null", "none"):
             self.list_name.append(node)
         return node
@@ -249,12 +279,16 @@ class QueryTransformer(ast.NodeTransformer):
         return ast.copy_location(right, node)
 
     def visit_UnaryOp(self, node):
+        if not isinstance(node.op, ast.Not):
+            return node
         node.op = ast.Invert()
         node.operand = self.visit(node.operand)
         return node
 
     def visit_Call(self, node):
-        if node.func.id.lower() in ("like", "lower", "upper", "trim", "replace"):
+        # print("call", ast.dump(node, indent=2))
+        # node.func = self.visit(node.func)
+        if node.func.id.lower() in QueryTransformer.PERMIT_FUNC:
             self._hard = True
             node.func.id = node.func.id.lower()
             args = []
@@ -298,6 +332,7 @@ class QueryTransformer(ast.NodeTransformer):
                                    ast.Constant(isinstance(node.ops[0], ast.IsNot))
                                    ], []
                                   )
+                result = self.visit(result)
                 return ast.copy_location(result, node)
             else:
                 if node.comparators[0].id.lower() in ("null", "none"):
@@ -305,22 +340,23 @@ class QueryTransformer(ast.NodeTransformer):
                     result = ast.Compare(node.left,
                                          [ast.Eq() if isinstance(node.ops[0], ast.IsNot) else ast.NotEq()],
                                          [node.left])
-
+                    result = self.visit(result)
                     return ast.copy_location(result, node)
 
         if isinstance(node.ops[0], (ast.In, ast.NotIn)):
             # print(ast.dump(node, indent=4))
-            result = ast.Call(ast.Name("in_func", ast.Load()),
+            result = ast.Call(ast.Name("is_in", ast.Load()),
                               [node.left,
                                node.comparators[0],
                                ast.Constant(isinstance(node.ops[0], ast.NotIn))
                                ], []
                               )
+            result = self.visit(result)
             return ast.copy_location(result, node)
 
         return node
 
-    def process(self, node: str | ast.AST, verbose=False):
+    def process(self, node: str | ast.AST, verbose=False, _for="query"):
         if isinstance(node, str):
             query, quoted_text_dict = tools.replace_quoted_text(node)
             # replace = by ==
@@ -333,10 +369,13 @@ class QueryTransformer(ast.NodeTransformer):
             query = re.sub(r"\s+like\s+", " is ", query, flags=re.I)
             # between
             query = re.sub(r"\s+(not\s+)?between\s+(\w+)\s+and\s+(\w+)", r" is \1 (\2, \3) ", query, flags=re.I)
+            query = " " + query
 
             # keyword case
             for keyword in ["in", "is", "and", "or", "not"]:
-                query = re.sub(keyword, keyword, query, flags=re.I)
+                query = re.sub(r"\s+" + keyword + r"\s+", " " + keyword + " ", query, flags=re.I)
+
+            query = query.strip()
             # consider the query where not hard
             old_query = query
 
@@ -353,36 +392,39 @@ class QueryTransformer(ast.NodeTransformer):
         if not all([isinstance(n, ast.Expr) for n in node.body]):
             raise ValueError("Bad value given")
         tree = self.visit(node)
-        if not hasattr(self, "list_name"):
-            list_name = []
-        else:
-            list_name = self.list_name
-
-        if not hasattr(self, "_hard"):
-            _hard = False
-        else:
-            _hard = self._hard
+        #
+        list_name = self.list_name
+        _hard = self._hard
+        #
         if _hard:
+            if self._use_attr:
+                raise NotImplementedError("Not permit to got attribute in this mode")
             for name in list_name:
-                if not name.id.startswith(QueryTransformer.PREFIX):
-                    name.id = QueryTransformer.PREFIX + name.id
+                if not name.id.startswith(self.PREFIX):
+                    name.id = self.PREFIX + name.id
             res = ast.unparse(tree)
-            with open(os.path.join(os.path.dirname(__file__), "_query_func.py")) as py:
-                pycode = py.read()
-            final_query = "result = " + QueryTransformer.PREFIX[:-1] + "[" + res + "]"
+            if _for != "query":
+                return res
+            pycode = ""
+            # with open(os.path.join(os.path.dirname(__file__), "_query_func.py")) as py:
+            #    pycode = py.read()
+            final_query = "result = " + self.PREFIX[:-1] + "[" + res + "]"
             pycode += final_query
-            if verbose:
-                print("Got final script -->", QueryTransformer.PREFIX[:-1] + "[" + res + "]")
+            if verbose or True:
+                print("Got final script -->", self.PREFIX[:-1] + "[" + res + "]")
             # code = compile(tree, "<string>", "exec")
             # exec(code)
         else:
             # here we consider the query is not hard so returns it
             pycode = old_query
+        if _for != "query":
+            return old_query
 
         return _hard, pycode
 
 
 if __name__ == '__main__':
     p = DatasetFactory(r"C:\Users\FBYZ6263\Documents\OWN\kb_package\temp_test.csv")
-    print(p.query("TYPE_CLIENT_ENDPERIOD IN ('HYBRID', 'POSTPAID') ANd RECHARGEMENT_TOTAL NOT between 300 AND 500"))
-    # print(p.query("VOIX_MIN_TOT = 0 and not TYPE_CLIENT_ENDPERIOD not like '.*?PRE.*'"))
+    print(p.query("upper(TYPE_CLIENT_ENDPERIOD) IN ('HYBRID', 'POSTPAID')"))
+    apply = "TYPE_CLIENT_ENDPERIOD + TYPE_CLIENT_ENDPERIOD"
+    print(p.apply(apply))

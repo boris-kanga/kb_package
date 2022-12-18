@@ -43,17 +43,17 @@ def force_delete_file(action, name, exc):
 
 
 def safe_eval_math(calculation, params=None, method="expr", result_var="result", **kwargs):
-    import numexpr
     if not isinstance(params, dict):
         params = {}
     params.update(kwargs)
     for k, v in params.items():
-        locals()[k] = v
+        globals()[k] = v
     if method == "eval":
         return eval(calculation)
     if method == "exec":
         exec(calculation)
         return locals().get(result_var)
+    import numexpr
     res = ""
     try:
         res = numexpr.evaluate(calculation)
