@@ -361,7 +361,7 @@ class QueryTransformer(ast.NodeTransformer):
             query, quoted_text_dict = tools.replace_quoted_text(node)
             query = query.replace('\n', "")
             # replace = by ==
-            query = re.sub(r"(?<![=><])=(?![=<>])", "==", query, flags=re.I)
+            query = re.sub(r"(?<![=><!])=(?![=])", "==", query, flags=re.I)
             # replace <> by !=
             query = query.replace("<>", "!=")
 
