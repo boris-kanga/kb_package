@@ -196,9 +196,14 @@ class DatasetFactory:
         if not len(query) or self._source.empty:
             return self._source
         if method in ("parse", 1):
-            hard, query = QueryTransformer().process(query)
+            permit_funcs = []
+            params = QueryTransformer.PERMIT_FUNC
+            for k, v in kwargs.items():
+                if callable(v):
+                    permit_funcs.extend(str(k).lower())
+                    params[str(k).lower()] = v
+            hard, query = QueryTransformer(permit_funcs=permit_funcs).process(query)
             if hard:
-                params = QueryTransformer.PERMIT_FUNC
                 res = tools.safe_eval_math(query, params=params, dataset=self._source, method="exec", **kwargs)
                 if kwargs.get("inplace"):
                     self._source = res
@@ -221,17 +226,24 @@ class DatasetFactory:
     def apply(self, func, convert_dtype=True, *, args=(), **kwargs):
         if not isinstance(func, str):
             return self._source.apply(func, convert_dtype, args=args, **kwargs)
-        query = (
-                "\ndef apply(serie):\n"
-                "\tres = " + QueryTransformer("serie", hard=True).process(func, _for="apply") + "\n"
-                "\treturn res.item() if hasattr(res, 'ndim') and res.ndim==0 else res\n"
-                "result = dataset.apply(apply, axis=1) \n"
-        )
+        permit_funcs = ["pnn_ci"]
         params = QueryTransformer.PERMIT_FUNC
-        print("Going to run", query)
         pnn_ci = numpy.vectorize(lambda f, plus="+", reseaux="ORANGE", permit_fix=False: tools.BasicTypes.pnn_ci(
             f, plus, permit_fixe=permit_fix, reseau=reseaux))
         params["pnn_ci"] = pnn_ci
+        for k, v in kwargs.items():
+            if callable(v):
+                permit_funcs.extend(str(k).lower())
+                params[str(k).lower()] = v
+        query = (
+                "\ndef apply(serie):\n"
+                "\tres = " + QueryTransformer("serie", hard=True, permit_funcs=permit_funcs).process(func, _for="apply") + "\n"
+                "\treturn res.item() if hasattr(res, 'ndim') and res.ndim==0 else res\n"
+                "result = dataset.apply(apply, axis=1) \n"
+        )
+
+        print("Going to run", query)
+
         return tools.safe_eval_math(query, params=params, dataset=self._source, method="exec", **kwargs)
 
     def sampling(self, d: str | int):
@@ -252,12 +264,16 @@ class QueryTransformer(ast.NodeTransformer):
                     isinstance(m, numpy.vectorize))))
     }
 
-    def __init__(self, *args, hard=False):
+    def __init__(self, *args, hard=False, permit_funcs=None):
         super().__init__()
         if len(args):
             self.PREFIX = args[0]
             if not self.PREFIX.endswith("."):
                 self.PREFIX += "."
+        self._custom_permit_func = permit_funcs or []
+        for i in range(len(self._custom_permit_func)):
+            self._custom_permit_func[i] = str(self._custom_permit_func[i]).lower()
+        self._custom_permit_func.extend(list(self.PERMIT_FUNC.keys()))
         self._hard = hard
         self._use_attr = False
         self.list_name = []
@@ -293,7 +309,7 @@ class QueryTransformer(ast.NodeTransformer):
     def visit_Call(self, node):
         # print("call", ast.dump(node, indent=2))
         # node.func = self.visit(node.func)
-        if node.func.id.lower() in QueryTransformer.PERMIT_FUNC:
+        if node.func.id.lower() in self._custom_permit_func:
             self._hard = True
             node.func.id = node.func.id.lower()
             args = []
