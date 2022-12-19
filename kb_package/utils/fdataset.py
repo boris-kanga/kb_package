@@ -199,7 +199,7 @@ class DatasetFactory:
             hard, query = QueryTransformer().process(query)
             if hard:
                 params = QueryTransformer.PERMIT_FUNC
-                res = tools.safe_eval_math(query, params=params, dataset=self._source, method="exec")
+                res = tools.safe_eval_math(query, params=params, dataset=self._source, method="exec", **kwargs)
                 if kwargs.get("inplace"):
                     self._source = res
                     return
@@ -221,13 +221,18 @@ class DatasetFactory:
     def apply(self, func, convert_dtype=True, *, args=(), **kwargs):
         if not isinstance(func, str):
             return self._source.apply(func, convert_dtype, args=args, **kwargs)
-        query = "def apply(serie): return " + QueryTransformer("serie", hard=True).process(func, _for="apply") +"\n"
-        query += "result = dataset.apply(apply, axis=1) \n"
+        query = (
+                "\ndef apply(serie):\n"
+                "\tres = " + QueryTransformer("serie", hard=True).process(func, _for="apply") + "\n"
+                "\treturn res.item() if hasattr(res, 'ndim') and res.ndim==0 else res\n"
+                "result = dataset.apply(apply, axis=1) \n"
+        )
         params = QueryTransformer.PERMIT_FUNC
         print("Going to run", query)
-        params["pnn_ci"] = numpy.vectorize(lambda f, plus="+", reseaux="ORANGE", permit_fix=False: tools.BasicTypes.pnn_ci(
+        pnn_ci = numpy.vectorize(lambda f, plus="+", reseaux="ORANGE", permit_fix=False: tools.BasicTypes.pnn_ci(
             f, plus, permit_fixe=permit_fix, reseau=reseaux))
-        return tools.safe_eval_math(query, params=params, dataset=self._source, method="exec")
+        params["pnn_ci"] = pnn_ci
+        return tools.safe_eval_math(query, params=params, dataset=self._source, method="exec", **kwargs)
 
     def sampling(self, d: str | int):
         """
@@ -426,6 +431,6 @@ class QueryTransformer(ast.NodeTransformer):
 
 if __name__ == '__main__':
     p = DatasetFactory(r"C:\Users\FBYZ6263\Documents\OWN\kb_package\temp_test.csv")
-    print(p.query("(CONSO_TOT >= 10000)"))
-    apply = "TYPE_CLIENT_ENDPERIOD + TYPE_CLIENT_ENDPERIOD"
+    apply = "TYPE_CLIENT_ENDPERIOD + TYPE_CLIENT_ENDPERIOD if length(MSISDN)= 13 else 0"
+    apply = "length(MSISDN)"
     print(p.apply(apply))
