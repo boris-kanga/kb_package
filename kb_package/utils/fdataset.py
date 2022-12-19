@@ -361,7 +361,7 @@ class QueryTransformer(ast.NodeTransformer):
             query, quoted_text_dict = tools.replace_quoted_text(node)
             query = query.replace('\n', "")
             # replace = by ==
-            query = re.sub(r"(?<!=)=(?!=)", "==", query, flags=re.I)
+            query = re.sub(r"(?<![=><])=(?![=<>])", "==", query, flags=re.I)
             # replace <> by !=
             query = query.replace("<>", "!=")
 
@@ -426,6 +426,6 @@ class QueryTransformer(ast.NodeTransformer):
 
 if __name__ == '__main__':
     p = DatasetFactory(r"C:\Users\FBYZ6263\Documents\OWN\kb_package\temp_test.csv")
-    print(p.query("upper(TYPE_CLIENT_ENDPERIOD) IN ('HYBRID', 'POSTPAID')"))
+    print(p.query("(CONSO_TOT >= 10000)"))
     apply = "TYPE_CLIENT_ENDPERIOD + TYPE_CLIENT_ENDPERIOD"
     print(p.apply(apply))
