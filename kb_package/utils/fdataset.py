@@ -259,7 +259,7 @@ class QueryTransformer(ast.NodeTransformer):
         k: func
         for k, func in inspect.getmembers(
             query_func,
-            lambda m: (callable(m) and (
+            lambda m: (hasattr(m, "__module__") and callable(m) and (
                     m.__module__ == query_func.__name__ or
                     isinstance(m, numpy.vectorize))))
     }
