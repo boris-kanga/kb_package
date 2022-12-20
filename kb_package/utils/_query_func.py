@@ -8,15 +8,15 @@ def like(value, regex, _not=False):
 
 
 def lower(value):
-    return value.lower()
+    return value.lower() if hasattr(value, "lower") else None
 
 
 def upper(value):
-    return value.upper()
+    return value.upper() if hasattr(value, "upper") else None
 
 
 def trim(value):
-    return value.strip()
+    return value.strip() if hasattr(value, "strip") else None
 
 
 def replace(old_car, new_car, value):
