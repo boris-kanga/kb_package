@@ -18,6 +18,7 @@ import zipfile
 from itertools import permutations
 from typing import Union
 import stat as stat_package
+import shutil
 
 import pandas
 import stat
@@ -212,13 +213,13 @@ def get_platform_info():
         return {"exe": "", "os": "macos", "platform": "mac", "bit": bit}
 
 
-def rename_file(path_to_last_file, new_name, absolute_new_name=False):
+def rename_file(path_to_last_file, new_name, *, use_origin_folder=False):
     """
     Use to rename or move file
     Args:
         path_to_last_file: the path to the file to be rename or move
         new_name: str, the new path | name
-        absolute_new_name: bool, specify if the directory of new_name must be
+        use_origin_folder: bool, specify if the directory of new_name must be
             use for moving the file
 
     Returns:
@@ -226,15 +227,16 @@ def rename_file(path_to_last_file, new_name, absolute_new_name=False):
 
     """
     if os.path.exists(path_to_last_file):
-        if not absolute_new_name:
+        last_folder = os.path.dirname(path_to_last_file)
+        if use_origin_folder:
             new_name = os.path.join(
-                os.path.dirname(path_to_last_file), os.path.basename(new_name)
+                last_folder, os.path.basename(new_name)
             )
         try:
             os.makedirs(os.path.dirname(new_name), exist_ok=True)
         except (OSError, Exception):
             pass
-        os.rename(path_to_last_file, new_name)
+        shutil.move(path_to_last_file, new_name)
         return new_name
 
 
