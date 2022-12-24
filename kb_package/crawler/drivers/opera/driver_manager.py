@@ -77,8 +77,7 @@ class DriverManager(ParentDriverManager):
                 os.path.join(
                     os.path.dirname(zip_file),
                     "operadriver" + self.info_platform['exe']
-                ),
-                absolute_new_name=True
+                )
 
             )
             return file
