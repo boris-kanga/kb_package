@@ -6,7 +6,7 @@ class DatabaseManager:
     MONGO = "mongo"
     POSTGRES = "postgres"
 
-    def __init__(self, db_type: str = "mysql", uri=None, **kwargs):
+    def __new__(cls, db_type: str = "mysql", uri=None, **kwargs):
         """
             kwargs:
                 user: username
@@ -24,7 +24,7 @@ class DatabaseManager:
         db_class = getattr(module, db_type.capitalize() + "DB")
 
         assert db_class, "Don't find"
-        self.db_object = db_class(uri, **kwargs)
+        return db_class(uri, **kwargs)
 
     def set_logger(self, logger):
         self.db_object.set_logger(logger)
