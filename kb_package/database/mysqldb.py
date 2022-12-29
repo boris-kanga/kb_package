@@ -91,8 +91,10 @@ class MysqlDB(BaseDB):
                 data.append(row)
         except (Exception, mysql.connector.errors.ProgrammingError):
             pass
-        if limit == 1 and len(data):
-            return data[0]
+        if limit == 1:
+            if len(data):
+                return data[0]
+            return None
         return data
 
     def run_script_file(self, path, params=None):

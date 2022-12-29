@@ -58,8 +58,10 @@ class PostgresDB(BaseDB):
                 row = cursor.fetchone()
         except (Exception, psycopg2.DatabaseError):
             pass
-        if limit == 1 and len(data):
-            return data[0]
+        if limit == 1:
+            if len(data):
+                return data[0]
+            return None
         return data
 
     @staticmethod

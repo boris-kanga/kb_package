@@ -115,8 +115,10 @@ class SQLiteDB(BaseDB):
                 data = data[:limit]
         except (Exception, sqlite3.ProgrammingError):
             pass
-        if limit == 1 and len(data):
-            return data[0]
+        if limit == 1:
+            if len(data):
+                return data[0]
+            return None
         return data
 
     @staticmethod

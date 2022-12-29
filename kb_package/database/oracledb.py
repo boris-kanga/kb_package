@@ -66,8 +66,10 @@ class OracleDB(BaseDB):
                 data.append(row)
         except (Exception, cx_Oracle.Error):
             traceback.print_exc()
-        if limit == 1 and len(data):
-            return data[0]
+        if limit == 1:
+            if len(data):
+                return data[0]
+            return None
         return data
 
     @staticmethod
