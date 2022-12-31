@@ -1000,7 +1000,7 @@ class CModality:
         candidates = []
         all_modalities = sorted(self._modalities,
                                 key=lambda x: (INFINITE
-                                               if len(x) in [len(check)-1, len(check), len(check)+1]
+                                               if len(x) in [len(check) - 1, len(check), len(check) + 1]
                                                else min([len(xx) for xx in x.split("|")])),
                                 reverse=True)
         for modality in all_modalities:
@@ -1239,17 +1239,17 @@ class ConsoleFormat:
     @staticmethod
     def progress(current=None, target=None, percent=0,
                  fill="█", empty="-", msg="",
-                 finish_msg="✅", decimals=1, size=50):
+                 finish_msg="✅", decimals=1, size=50, _print=print):
 
         if current is not None and target is not None:
             percent = size * abs(current) / max(1, abs(target))
         else:
             if current is not None:
                 percent = current * size / 100
-        print("|" + fill * round(percent) + empty * round(size - percent) + "|",
-              ("{0:." + str(decimals) + "f} %").format(percent * 100 / size), msg, end="\r")
+        _print("|" + fill * round(percent) + empty * round(size - percent) + "|",
+               ("{0:." + str(decimals) + "f} %").format(percent * 100 / size), msg, end="\r")
         if percent * 100 / size >= 100:
-            print("|" + fill * round(100 * size / 100) + "|", finish_msg, end="\n")
+            _print("|" + fill * round(100 * size / 100) + "|", finish_msg, end="\n")
 
 
 def get_buffer(obj, max_buffer=200, vv=True) -> typing.Union[tuple, typing.Any]:

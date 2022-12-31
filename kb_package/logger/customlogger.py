@@ -49,6 +49,7 @@ class CustomLogger:
         self.console = kwargs.get("console", True)
         self.callback = kwargs.get("callback", None)
         self.callback_each_logging = kwargs.get("callback_each_logging", True)
+        self._last_end = "\n"
         if callable(self.callback):
             self.log_capture_string = io.StringIO()
         else:
@@ -159,6 +160,7 @@ class CustomLogger:
         Returns:
 
         """
+        self._last_end = kwargs.pop("end", "\n")
         if self.last_file_name is not None:
             if self.max_size is not None:
                 if os.stat(self.last_file_name).st_size > self.max_size:

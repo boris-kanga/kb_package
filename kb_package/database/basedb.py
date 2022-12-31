@@ -221,7 +221,7 @@ class BaseDB(abc.ABC):
                  " ( " + ",".join(part_vars) + \
                  ") VALUES ( " + ", ".join(xx) + " ) "
         if verbose:
-            tools.ConsoleFormat.progress(0)
+            tools.ConsoleFormat.progress(0, _print=print)
         for t, buffer in tools.get_buffer(dataset, max_buffer=self.MAX_BUFFER_INSERTING_SIZE):
             try:
                 self._execute(cursor, script,
@@ -232,7 +232,7 @@ class BaseDB(abc.ABC):
                                       for k, v in row.items()
                                   } for row in buffer], method="many")
                 if verbose:
-                    tools.ConsoleFormat.progress(100 * t)
+                    tools.ConsoleFormat.progress(100 * t, _print=print)
             except Exception as ex:
                 # print("\n", "->Got error with the buffer: ", buffer)
                 traceback.print_exc()
