@@ -10,5 +10,5 @@ log
 kb_package/crawler/drivers/*/drivers/
 geckodriver.log
 /**/geckodriver.log
-temp
+temp/*
 /temp
