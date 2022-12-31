@@ -10,17 +10,23 @@ import ast
 import os
 import re
 import stat
+import time
 import typing
 import inspect
+import csv
 
+import chardet
 import numpy
 import pandas
+
 from pandas.core.dtypes.common import is_numeric_dtype, is_object_dtype
 import kb_package.tools as tools
 import kb_package.utils._query_func as query_func
 
 
 class DatasetFactory:
+    LAST_FILE_LOADING_TIME = 0
+
     def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict] = None, **kwargs):
         # cls = self.__class__
         # cls.from_file.__code__.co_varnames
@@ -117,7 +123,9 @@ class DatasetFactory:
         return self.c_merge(other, exclusion_logic, op="both", columns=self.dataset.columns)
 
     @classmethod
-    def from_file(cls, file_path, sep=None, drop_duplicates=False, drop_duplicates_on=None, columns=None, **kwargs):
+    def from_file(cls, file_path, sep=None, drop_duplicates=False, drop_duplicates_on=None, columns=None,
+                  force_encoding=True, **kwargs):
+        start_time = time.time()
 
         if isinstance(file_path, str):
             try:
@@ -140,30 +148,44 @@ class DatasetFactory:
                 }
                 if "encoding" not in kwargs:
                     kwargs["encoding"] = "utf-8"
+                used_sniffer = False
                 if sep is None:
-                    with open(file_path, encoding='latin1') as file:
-                        got = True
-                        for _ in range(5):
-                            line = file.readline().strip()
-                            if line and ";" not in line:
-                                got = False
-                                break
-                        if got:
-                            kwargs["sep"] = ";"
+                    with open(file_path, encoding=kwargs["encoding"]) as file:
+                        first_lines = "".join([file.readline().strip() for _ in range(10)])
+                        try:
+                            kwargs["sep"] = csv.Sniffer().sniff(first_lines[:-1]).delimiter
+                            used_sniffer = True
+                        except csv.Error:
+                            pass
                 else:
                     kwargs["sep"] = sep
                 try:
                     dataset = pandas.read_csv(file_path, **kwargs)
                 except UnicodeDecodeError as exc:
-                    if kwargs["encoding"] != "latin1":
-                        print("We force encoding to latin1")
-                        kwargs["encoding"] = "latin1"
+                    if not force_encoding:
+                        raise exc
+                    with open(file_path, "rb") as file_from_file_path:
+                        file_bytes = file_from_file_path.read()
+                        encoding_proba = chardet.detect(file_bytes).get("encoding", "latin1")
+                    if kwargs["encoding"] != encoding_proba:
+                        print("We force encoding to:", encoding_proba)
+                        kwargs["encoding"] = encoding_proba
+                        if "sep" not in kwargs or used_sniffer:
+                            with open(file_path, encoding=kwargs["encoding"]) as file:
+                                first_lines = "".join([file.readline().strip() for _ in range(10)])
+                                try:
+                                    kwargs["sep"] = csv.Sniffer().sniff(first_lines[:-1]).delimiter
+                                except csv.Error:
+                                    pass
                         dataset = pandas.read_csv(file_path, **kwargs)
                     else:
                         raise exc
         else:
             dataset = pandas.DataFrame(file_path, **{k: v for k, v in kwargs.items()
                                                      if k in ["index", "dtype"]})
+
+        cls.LAST_FILE_LOADING_TIME = time.time() - start_time
+
         if columns is not None:
             if isinstance(columns, list):
                 dataset = dataset.loc[:, columns]

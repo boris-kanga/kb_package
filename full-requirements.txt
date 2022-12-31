@@ -3,6 +3,7 @@ setuptools~=60.5.0
 numexpr
 numpy
 pandas~=1.3.3
+chardet
 
 fake_useragent
 lxml
