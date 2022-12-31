@@ -184,6 +184,7 @@ class BaseDB(abc.ABC):
 
     def insert_many(self, data: typing.Union[list, pandas.DataFrame, str], table_name, verbose=True, ftype=None,
                     **kwargs):
+        print = self._print_info
         if self._cursor_:
             cursor = self._cursor_
         else:
