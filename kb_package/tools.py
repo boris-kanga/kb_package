@@ -899,7 +899,6 @@ class CModality:
     def __init__(self, *args, values: dict = None, key=None):
         values = (values or {})
         assert isinstance(values, dict), "Bad values given"
-        self._values = {}
         modalities = []
         if len(args):
             if len(args) == 1 and isinstance(args[0], Iterable):
@@ -950,6 +949,7 @@ class CModality:
                 self._values_no_space_no_accent[
                     remove_accent_from_text(kk.lower().replace("-", "").replace(" ", ""))] = self._values.get(kk.lower())
                 self._values_no_accent[remove_accent_from_text(kk.lower())] = self._values.get(kk.lower())
+        self._modalities = list(self._values.keys())
 
     def _regex(self, remove_space=True, modal=None):
         return re.compile(r"(?:.*?)?(" + "|".join(
@@ -973,6 +973,7 @@ class CModality:
             priority = [priority]
         if BasicTypes.is_iterable(priority):
             rest_modal = set(self._modalities)
+            # print(rest_modal)
             i = 0
             while True:
                 mod = None if i >= len(priority) else priority[i]
@@ -983,11 +984,10 @@ class CModality:
                              or self._values[d.lower()].get(mod.get("key")) == mod.get("value")]
                 else:
                     modal = list(rest_modal)
-
                 res = self._regex(remove_space=remove_space, modal=modal).search(check)
-                print("got res", res)
+                # print("got res", res)
                 if res:
-                    print(res.groups())
+                    # print(res.groups())
                     check = res.groups()[0].lower()
                     return (self._values.get(check) or self._values_no_accent.get(check)
                             or self._values_no_space_no_accent.get(check))
@@ -1020,7 +1020,8 @@ class CModality:
         res, score, best = CModality.best_similarity(check, candidates, remove_space=remove_space)
         if score >= CModality.EQUALITY_THRESHOLD:
 
-            print("got res: ", res, "->", check, "list: ", best)
+            # print("got res: ", res, "->", check, "list: ", best)
+            pass
         else:
             res = None
         return self._values.get(res.lower() if res is not None else None, default)
@@ -1239,7 +1240,7 @@ class ConsoleFormat:
     @staticmethod
     def progress(current=None, target=None, percent=0,
                  fill="█", empty="-", msg="",
-                 finish_msg="✅", decimals=1, size=50, _print=print):
+                 finish_msg=" 100%", decimals=1, size=50, _print=print):
 
         if current is not None and target is not None:
             percent = size * abs(current) / max(1, abs(target))
