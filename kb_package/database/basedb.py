@@ -42,6 +42,7 @@ class BaseDB(abc.ABC):
         if uri is None:
             uri = kwargs
         if isinstance(uri, dict):
+            uri = {k.lower(): uri[k] for k in uri}
             self.username = uri.get("user", "root")
             self.password = uri.get("pwd", "") or uri.get("password", "")
             self.host = uri.get("host", "127.0.0.1")
@@ -50,18 +51,16 @@ class BaseDB(abc.ABC):
             self.file_name = uri.get("file_name") or ":memory:"
         else:
             assert isinstance(uri, str), "Bad URI value given"
-            if os.path.exists(uri):
+            res = re.match(self.REGEX_SPLIT_URI, uri)
+            if res:
+                self.file_name = ":memory:"
+                _, self.username, self.password, self.host, \
+                    self.port, self.database_name = res.groups()
+
+            else:
                 self.file_name = uri
                 self.username, self.password, self.host, \
                     self.port, self.database_name = None, None, None, None, None
-
-            else:
-                res = re.match(self.REGEX_SPLIT_URI, uri)
-                self.file_name = ":memory:"
-                if not res:
-                    raise ValueError("Got bad uri")
-                _, self.username, self.password, self.host, \
-                    self.port, self.database_name = res.groups()
             uri = {}
 
         self._kwargs = uri
@@ -185,6 +184,7 @@ class BaseDB(abc.ABC):
     def insert_many(self, data: typing.Union[list, pandas.DataFrame, str], table_name, verbose=True, ftype=None,
                     **kwargs):
         print = self._print_info
+        loader = kwargs.pop("loader", None)
         if self._cursor_:
             cursor = self._cursor_
         else:
@@ -231,8 +231,10 @@ class BaseDB(abc.ABC):
                                       if not pandas.isnull(v) else None
                                       for k, v in row.items()
                                   } for row in buffer], method="many")
+                if callable(loader):
+                    loader(t)
                 if verbose:
-                    tools.ConsoleFormat.progress(100 * t, _print=print)
+                    tools.ConsoleFormat.progress(100 * t)
             except Exception as ex:
                 # print("\n", "->Got error with the buffer: ", buffer)
                 traceback.print_exc()
@@ -383,7 +385,7 @@ class BaseDB(abc.ABC):
         equivalent = {}
         types = {}
         for index, col in enumerate(dataset.columns):
-            field = tools.format_var_name(col) or "field"+str(index)
+            field = tools.format_var_name(col) or "field" + str(index)
 
             equivalent[col] = field
             types[field] = lambda x: x
@@ -432,7 +434,7 @@ class BaseDB(abc.ABC):
         table_script += "\n)"
         if if_not_exists and "oracle" in self._get_name.lower():
             try:
-                self.run_script("select * from "+table_name, limit=1)
+                self.run_script("select * from " + table_name, limit=1)
                 print("The Table specify were exists: Going to drop it")
                 self.run_script("drop table " + table_name, retrieve=False)
                 self.commit()
@@ -444,7 +446,7 @@ class BaseDB(abc.ABC):
 
         # dataset.to_sql(con=self.db_object)
         # INSERTING DATASET
-        self.insert_many(dataset, table_name=table_name)
+        self.insert_many(dataset, table_name=table_name, loader=kwargs.get("loader"))
 
     def dump(self, dump_file='dump.sql'):
         pass
