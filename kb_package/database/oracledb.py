@@ -53,7 +53,7 @@ class OracleDB(BaseDB):
 
     @staticmethod
     def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
-        columns = [col[0] for col in cursor.description]
+        columns = [col[0] for col in cursor.description or []]
         OracleDB.LAST_REQUEST_COLUMNS = columns
         if dict_res:
             cursor.rowfactory = lambda *args: dict(zip(columns, args))

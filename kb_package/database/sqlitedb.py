@@ -103,7 +103,7 @@ class SQLiteDB(BaseDB):
 
     @staticmethod
     def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
-        columns = [col[0] for col in cursor.description]
+        columns = [col[0] for col in cursor.description or []]
         SQLiteDB.LAST_REQUEST_COLUMNS = columns
         if dict_res:
             cursor.row_factory = lambda *args: dict(zip(columns, args[1]))
