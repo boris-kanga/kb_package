@@ -183,6 +183,7 @@ class BaseDB(abc.ABC):
         return "SQL"
 
     def insert_many(self, data: typing.Union[list, pandas.DataFrame, str], table_name, verbose=True, ftype=None,
+                    ignore_type=False,
                     **kwargs):
         print = self._print_info
         loader = kwargs.pop("loader", None)
@@ -204,12 +205,13 @@ class BaseDB(abc.ABC):
         types = {}
         for field in dataset.columns:
             types[field] = lambda x: x
-            if is_integer_dtype(dataset[field]) and (
-                    is_integer_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
-                types[field] = int
-            elif (is_float_dtype(dataset[field]) or is_integer_dtype(dataset[field])) and (
-                    is_float_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
-                types[field] = float
+            if not ignore_type:
+                if is_integer_dtype(dataset[field]) and (
+                        is_integer_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
+                    types[field] = int
+                elif (is_float_dtype(dataset[field]) or is_integer_dtype(dataset[field])) and (
+                        is_float_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
+                    types[field] = float
 
         dataset = dataset.to_dict("records")
         first_value = dataset[0]
@@ -222,7 +224,7 @@ class BaseDB(abc.ABC):
                  " ( " + ",".join(part_vars) + \
                  ") VALUES ( " + ", ".join(xx) + " ) "
         if verbose:
-            tools.ConsoleFormat.progress(0, _print=print)
+            tools.ConsoleFormat.progress(0)
         for t, buffer in tools.get_buffer(dataset, max_buffer=self.MAX_BUFFER_INSERTING_SIZE):
             try:
                 self._execute(cursor, script,
@@ -384,30 +386,27 @@ class BaseDB(abc.ABC):
         if auto_increment_field:
             table_script += "\n\t" + self.get_add_increment_field_code(auto_increment_field_name) + ","
         equivalent = {}
-        types = {}
+        print("Going to create table structure")
         for index, col in enumerate(dataset.columns):
             field = tools.format_var_name(col) or "field" + str(index)
 
             equivalent[col] = field
-            types[field] = lambda x: x
             if index > 0:
                 table_script += ","
 
             if is_integer_dtype(dataset[col]) and (
                     is_integer_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
                 table_script += f"\n\t{field} int"
-                types[field] = int
             elif (is_float_dtype(dataset[col]) or is_integer_dtype(dataset[col])) and (
                     is_float_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
                 table_script += f"\n\t{field} float"
-                types[field] = float
             else:
                 got = False
                 if ftype.get(col) is not None:
                     got = True
                     table_script += f"\n\t{field} {ftype.get(col)}"
 
-                if dataset[col].apply(lambda val: not _is_datetime_field(val)).any() and (
+                elif dataset[col].apply(lambda val: not _is_datetime_field(val)).any() and (
                         "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
                 ):
                     dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)

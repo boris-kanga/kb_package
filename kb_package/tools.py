@@ -639,34 +639,57 @@ class CustomDateTime:
         if date_value == "now" or date_value is None:
             date_value = now
         elif isinstance(date_value, str):
+            if len(date_value) < 6 or not re.search(r"(\d{4}|\d{8}|\d{6}|\d{2})", date_value) or re.search(
+                    r"\d{9,}", date_value):
+                if ignore_errors:
+                    return CustomDateTime(default)()
+                raise ValueError("Bad value given for argument date_value: " + date_value)
             date_value = date_value.strip()
             reg = (r'^(\d{4})[/-]?(\d{1,2})[/-]?(\d{1,2})(?:[A-Z]'
                    r'(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d+))?)?)?$'
                    )
-            if re.search(reg, date_value):
-                year, month, day, hour, minute, second, micro = re.search(
-                    reg, date_value).groups()
-                return datetime.datetime(year=int(year),
-                                         month=int(month),
-                                         day=int(day),
-                                         hour=int(hour or 0),
-                                         minute=int(minute or 0),
-                                         second=int(second or 0),
-                                         microsecond=int(micro or 0) * 1000
-                                         )
-            reg_1 = r'\s(\d{1,2})[/-](\d{1,2})[/-](\d{4})\s'
+            res = re.search(reg, date_value)
+
+            if res:
+                got = True
+                year, month, day, hour, minute, second, micro = res.groups()
+                if int(month) not in range(1, 13):
+                    got = False
+                elif int(year) < 1900:
+                    got = False
+                elif int(day) > 31:
+                    got = False
+                if got:
+                    try:
+                        return datetime.datetime(year=int(year),
+                                                 month=int(month),
+                                                 day=int(day),
+                                                 hour=int(hour or 0),
+                                                 minute=int(minute or 0),
+                                                 second=int(second or 0),
+                                                 microsecond=int(micro or 0) * 1000
+                                                 )
+                    except ValueError:
+                        pass
+            # try to extract the date from string
+            reg_1 = r'\s(\d{1,2})[/-]?(\d{1,2})[/-]?(\d{4})\s'
             reg_0 = r'\s(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s'
             dyear, dmonth, dday, dhour, dminute, dsecond, dmicro = (
                 now.year, 1, 1, 0, 0, 0, 0)
-            got = True
+            got = False
 
             year, month, day = dyear, dmonth, dday
             if re.search(reg_1, f" {date_value} "):
                 year, month, day = re.search(reg_1,
                                              f" {date_value} ").groups()[::-1]
-            elif re.search(reg_0, f" {date_value} "):
+                if int(month) in range(1, 13) and int(day) <= 31:
+                    got = True
+            if not got and re.search(reg_0, f" {date_value} "):
                 year, month, day = re.search(reg_0, f" {date_value} ").groups()
-            else:
+                if int(month) in range(1, 13) and int(day) <= 31:
+                    got = True
+            if not got:
+                print("ok")
                 month_ref = {}
                 v = ""
                 for key, value in CustomDateTime.MONTH.items():
@@ -686,8 +709,7 @@ class CustomDateTime:
                         else:
                             year = "19" + year
                     month = month_ref[month.lower()]
-                else:
-                    got = False
+                    got = True
             try:
                 assert got, f"Date Parsing fail: format not supported ->" \
                             f" {date_value}"
@@ -698,6 +720,7 @@ class CustomDateTime:
                 else:
                     raise ValueError(f"Date Parsing fail: format not supported ->"
                                      f" {date_value}")
+            # try to extract hour
             reg_hour = r"\s(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d+))?)?\s"
             hour, minute, second, micro = 0, 0, 0, 0
 
@@ -947,7 +970,8 @@ class CModality:
                 self._values[kk.lower()] = values.get(k) or values.get(k.lower()) or k
                 self._values_no_space[kk.lower().replace("-", "").replace(" ", "")] = self._values.get(kk.lower())
                 self._values_no_space_no_accent[
-                    remove_accent_from_text(kk.lower().replace("-", "").replace(" ", ""))] = self._values.get(kk.lower())
+                    remove_accent_from_text(kk.lower().replace("-", "").replace(" ", ""))] = self._values.get(
+                    kk.lower())
                 self._values_no_accent[remove_accent_from_text(kk.lower())] = self._values.get(kk.lower())
         self._modalities = list(self._values.keys())
 
@@ -1408,5 +1432,6 @@ def replace_quoted_text(text, quotes="\"'"):
 
 if __name__ == "__main__":
     d = CustomDateTime('12:50 28 déc 2022')
+    print(d)
     print(d.to_string(d_format="y  md"))
     CustomDateTime.datetime_as_string()
