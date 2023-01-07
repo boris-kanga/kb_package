@@ -29,6 +29,7 @@ class BaseDB(abc.ABC):
                                  r"([\w\-.]+):(\d+)(?:/([\w\-.]+))?")
     LAST_SQL_CODE_RUN = None
     MAX_BUFFER_INSERTING_SIZE = 5000
+    LAST_REQUEST_COLUMNS = None
 
     def __init__(self, uri=None, **kwargs):
         """
