@@ -235,8 +235,12 @@ class DatasetFactory:
                 kk["delimiter"] = sep
             dataset = csv.DictReader(file_path, **kk)
         else:
-            dataset = pandas.DataFrame(file_path, **{k: v for k, v in kwargs.items()
-                                                     if k in ["index", "dtype"]})
+            col_arg = columns
+            if isinstance(columns, list):
+                columns = None
+
+            dataset = pandas.DataFrame(file_path, columns=col_arg,
+                                       **{k: v for k, v in kwargs.items() if k in ["index", "dtype"]})
 
         cls.LAST_FILE_LOADING_TIME = time.time() - start_time
 
