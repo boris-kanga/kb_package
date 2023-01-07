@@ -30,9 +30,12 @@ class DatasetFactory:
     def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict] = None, **kwargs):
         # cls = self.__class__
         # cls.from_file.__code__.co_varnames
+        self._path = None
+        if isinstance(dataset, str):
+            self._path = dataset
         if dataset is None:
             self._source = pandas.DataFrame()
-        elif not isinstance(dataset, pandas.DataFrame):
+        elif not isinstance(dataset, pandas.DataFrame) or (hasattr(dataset, "readable") and dataset.readable()):
             self._source = self.from_file(dataset, **kwargs).dataset
         else:
             self._source = dataset
@@ -53,6 +56,28 @@ class DatasetFactory:
 
     def __len__(self):
         return self._source.shape[0]
+
+    def __delitem__(self, key):
+        self._source.__delitem__(key)
+
+    def save(self, path=None, force=False, **kwargs):
+        if "index" not in kwargs:
+            kwargs["index"] = False
+        if path is None:
+            if self._path is None:
+                raise TypeError("save method required :param path argument")
+        path = path or self._path
+        _base, ext = os.path.splitext(path)
+        if force:
+            i = 1
+            while os.path.exists(path):
+                path = _base + "_" + str(i) + ext
+                i += 1
+        if ext.lower() in [".xls", ".xlsx", ".xlsb"]:
+            self._source.to_excel(path, **kwargs)
+        elif ext.lower() in [".csv", ".txt", ""]:
+            self._source.to_csv(path, **kwargs)
+        return path
 
     @property
     def dataset(self):
@@ -122,11 +147,22 @@ class DatasetFactory:
                   ):
         return self.c_merge(other, exclusion_logic, op="both", columns=self.dataset.columns)
 
+    @staticmethod
+    def _check_delimiter(sample, check_in=None):
+        if check_in is None:
+            check_in = [',', '\t', ';', ' ', ':']
+        first_lines = "".join(sample)
+        try:
+            sep = csv.Sniffer().sniff(first_lines[:-1], delimiters=check_in).delimiter
+        except csv.Error:
+            sep = None
+        return sep
+
     @classmethod
     def from_file(cls, file_path, sep=None, drop_duplicates=False, drop_duplicates_on=None, columns=None,
                   force_encoding=True, **kwargs):
         start_time = time.time()
-
+        delimiters = kwargs.pop("delimiters", [',', '\t', ';', ' ', ':'])
         if isinstance(file_path, str):
             try:
                 is_hidden = bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
@@ -149,17 +185,19 @@ class DatasetFactory:
                 if "encoding" not in kwargs:
                     kwargs["encoding"] = "utf-8"
                 used_sniffer = False
-                if sep is None:
-                    with open(file_path, encoding=kwargs["encoding"]) as file:
-                        first_lines = "".join([file.readline().strip() for _ in range(10)])
-                        try:
-                            kwargs["sep"] = csv.Sniffer().sniff(first_lines[:-1]).delimiter
-                            used_sniffer = True
-                        except csv.Error:
-                            pass
-                else:
-                    kwargs["sep"] = sep
                 try:
+                    if sep is None:
+                        with open(file_path, encoding=kwargs["encoding"]) as file:
+                            sample = [file.readline() for _ in range(10)]
+                            try:
+                                sep = DatasetFactory._check_delimiter(sample, delimiters)
+                                assert sep, ""
+                                kwargs["sep"] = sep
+                                used_sniffer = True
+                            except (csv.Error, AssertionError):
+                                pass
+                    else:
+                        kwargs["sep"] = sep
                     dataset = pandas.read_csv(file_path, **kwargs)
                 except UnicodeDecodeError as exc:
                     if not force_encoding:
@@ -172,14 +210,30 @@ class DatasetFactory:
                         kwargs["encoding"] = encoding_proba
                         if "sep" not in kwargs or used_sniffer:
                             with open(file_path, encoding=kwargs["encoding"]) as file:
-                                first_lines = "".join([file.readline().strip() for _ in range(10)])
+                                sample = [file.readline() for _ in range(10)]
                                 try:
-                                    kwargs["sep"] = csv.Sniffer().sniff(first_lines[:-1]).delimiter
-                                except csv.Error:
+                                    sep = DatasetFactory._check_delimiter(sample, delimiters)
+                                    assert sep, ""
+                                    kwargs["sep"] = sep
+                                except (csv.Error, AssertionError):
                                     pass
                         dataset = pandas.read_csv(file_path, **kwargs)
                     else:
                         raise exc
+        elif hasattr(file_path, "readable") and file_path.readable():
+            sample = [file_path.readline() for _ in range(10)]
+            file_path.seek(0)
+            kk = {}
+            if sep is None:
+                try:
+                    sep = DatasetFactory._check_delimiter(sample, delimiters)
+                    assert sep, ""
+                    kk["delimiter"] = sep
+                except (csv.Error, AssertionError):
+                    pass
+            else:
+                kk["delimiter"] = sep
+            dataset = csv.DictReader(file_path, **kk)
         else:
             dataset = pandas.DataFrame(file_path, **{k: v for k, v in kwargs.items()
                                                      if k in ["index", "dtype"]})
@@ -193,10 +247,13 @@ class DatasetFactory:
                 dataset = dataset.loc[:, columns.keys()]
                 dataset.rename(columns=columns, inplace=True)
         if drop_duplicates:
-            drop_duplicates_on = ([drop_duplicates_on]
-                                  if isinstance(drop_duplicates_on, str)
-                                  else drop_duplicates_on)
-            drop_duplicates_on = dataset.columns.intersection(drop_duplicates_on)
+            if drop_duplicates_on is None:
+                drop_duplicates_on = dataset.columns
+            else:
+                drop_duplicates_on = ([drop_duplicates_on]
+                                      if isinstance(drop_duplicates_on, str)
+                                      else drop_duplicates_on)
+                drop_duplicates_on = dataset.columns.intersection(drop_duplicates_on)
             if drop_duplicates_on.shape[0]:
                 dataset.drop_duplicates(inplace=True,
                                         subset=drop_duplicates_on, ignore_index=True)
