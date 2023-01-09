@@ -1,5 +1,3 @@
-FIXE:: CustomDateTime().datetime_as_string(d_format="d/m/y H:M:S") (where date is '30/12/2022 18:08:19')  --> '30/12/2022 H18:08:19'
-
 DatasetFactory:
     parse query string when columns contains special characters
 
