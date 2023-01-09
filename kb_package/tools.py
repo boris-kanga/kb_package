@@ -740,13 +740,13 @@ class CustomDateTime:
         return date_value
 
     def to_string(self, sep=None, microsecond=False, force_time=False,
-                  d_format=None, t=True):
+                  d_format=None, t=True, intelligent=False):
         if not force_time and t:
             t = (self._source.hour or self._source.minute
                  or self._source.second or self._source.microsecond)
         return self.datetime_as_string(self._source, sep=sep,
                                        microsecond=microsecond, time_=t,
-                                       d_format=d_format)
+                                       d_format=d_format, intelligent=intelligent)
 
     @staticmethod
     def datetime_as_string(
@@ -754,7 +754,7 @@ class CustomDateTime:
                 str, datetime.datetime,
                 datetime.date] = "now",
             sep=None, microsecond=False,
-            time_=True, d_format=None):
+            time_=True, d_format=None, intelligent=False):
         """
         Use to get datetime formatting to str
         Args:
@@ -763,6 +763,7 @@ class CustomDateTime:
             microsecond: bool, consider microsecond?
             time_: show time
             d_format: str
+            intelligent: bool
 
         Returns:
             str, the datetime str formatted
@@ -770,6 +771,38 @@ class CustomDateTime:
         """
 
         current_time = CustomDateTime._parse(date_time)
+        now = CustomDateTime()
+
+        if intelligent and now() >= current_time and now.date.year == current_time.date().year:
+            if CustomDateTime.DEFAULT_LANG == "fr":
+                _msg_start = "Il y a"
+                _msg_end = ""
+            else:
+                _msg_start = ""
+                _msg_end = "ago"
+            if now.date == current_time.date():
+                if time_:
+                    dts = int((now() - current_time).total_seconds())
+                    _h = int(dts // (60 * 60))
+                    if _h > 0:
+                        return _msg_start + " " + "1 h" + " " + _msg_end
+                    _m = int(dts // 60)
+                    if _m > 0:
+                        return _msg_start + " " + str(_m) + "m " + _msg_end
+                    return _msg_start + " " + str(dts) + "s " + _msg_end
+                else:
+                    return "Ce jour"
+            elif now.date.day - 1 == current_time.date().day:
+                return ("Hier à " if CustomDateTime.DEFAULT_LANG == "fr" else "Yesterday ") + \
+                       current_time.strftime("%H:%M" if time_ else "")
+            elif now.date.month == current_time.date().month and CustomDateTime.DEFAULT_LANG == "fr":
+                return "Le " + str(current_time.date().day) + " à " + current_time.strftime("%H:%M" if time_ else "")
+            else:
+                return CustomDateTime.datetime_as_string(current_time, d_format="day month") + \
+                       current_time.strftime("%H:%M" if time_ else "")
+        elif intelligent and now() >= current_time and now.date.year > current_time.date().year:
+            return "Il y a longtemps" if CustomDateTime.DEFAULT_LANG == "fr" else "A long time ago"
+
         if isinstance(d_format, str):
             try:
                 res = current_time.strftime(d_format)
@@ -829,7 +862,7 @@ class CustomDateTime:
             while res:
                 time_ = False
                 sepc = res.groups()
-                final_temp += temp[:res.start() + 1] + "%H" + sepc[0] + "%M" + sepc[1] + "%S"
+                final_temp += temp[:res.start()] + "%H" + sepc[0] + "%M" + sepc[1] + "%S"
                 temp = temp[res.end():]
                 res = re.search(r"%?h{1,2}\s*:\s*%?m{1,2}\s*:\s*%?s{1,2}", temp, flags=re.I)
             d_format = final_temp + temp
@@ -840,7 +873,7 @@ class CustomDateTime:
         else:
             d_format = "%Y{sep}%m{sep}%d"
         if sep is None:
-            sep = ""
+            sep = "-"
 
         if str(d_format).lower() == "normal":
             date_time = CustomDateTime.WEEKDAYS[current_time.weekday()] + " " + \
@@ -1434,4 +1467,5 @@ if __name__ == "__main__":
     d = CustomDateTime('12:50 28 déc 2022')
     print(d)
     print(d.to_string(d_format="y  md"))
-    CustomDateTime.datetime_as_string()
+    print(CustomDateTime("2022-01-07 09:00").to_string(intelligent=True))
+
