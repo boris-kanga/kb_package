@@ -348,7 +348,7 @@ class BaseDB(abc.ABC):
     def get_add_increment_field_code(field_name="id"):
         return str(field_name or "id") + " INTEGER PRIMARY KEY AUTOINCREMENT"
 
-    def create_table(self, arg: str | pandas.DataFrame, table_name=None, if_not_exists=True,
+    def create_table(self, arg: str | pandas.DataFrame | DatasetFactory, table_name=None, if_not_exists=True,
                      auto_increment_field=False,
                      auto_increment_field_name=None,
                      columns=None, ftype=None, verbose=True, **kwargs):
@@ -359,6 +359,8 @@ class BaseDB(abc.ABC):
         with self:
             if isinstance(arg, pandas.DataFrame):
                 dataset = arg
+            if isinstance(arg, DatasetFactory):
+                dataset = arg.dataset
             elif isinstance(arg, str) and os.path.exists(arg):
                 dataset = DatasetFactory(arg, **kwargs).dataset
 
@@ -393,7 +395,7 @@ class BaseDB(abc.ABC):
             equivalent[col] = field
             if index > 0:
                 table_script += ","
-
+            print(is_integer_dtype(dataset[col]), dataset[col])
             if is_integer_dtype(dataset[col]) and (
                     is_integer_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
                 table_script += f"\n\t{field} int"
@@ -406,11 +408,17 @@ class BaseDB(abc.ABC):
                     got = True
                     table_script += f"\n\t{field} {ftype.get(col)}"
 
-                elif dataset[col].apply(lambda val: not _is_datetime_field(val)).any() and (
+                elif dataset[col][:100].apply(lambda val: not _is_datetime_field(val)).any() and (
                         "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
                 ):
                     dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
-                    size = dataset[col].apply(lambda x: len(x)).max()
+                    size = [len(str(x)) if x else 0 for x in dataset[col][:100]]
+                    if max(size) == min(size):
+                        size = max(size)
+                        if size == 0:
+                            size = 255
+                    else:
+                        size = max(size)
                     if size > 255:
                         type_ = 'text'
                     else:
@@ -419,7 +427,7 @@ class BaseDB(abc.ABC):
                         type_ = f"varchar({size or 255})"
 
                 else:
-                    if dataset[col].apply(lambda val: tools.CustomDateTime(str(val)).is_datetime).any():
+                    if dataset[col][:100].apply(lambda val: tools.CustomDateTime(str(val)).is_datetime).any():
                         type_ = "datetime"
                         dataset[col] = dataset[col].apply(
                             lambda val: tools.CustomDateTime(str(val), default=None)())
