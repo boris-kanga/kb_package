@@ -3,14 +3,4 @@ FIXE:: CustomDateTime().datetime_as_string(d_format="d/m/y H:M:S") (where date i
 DatasetFactory:
     parse query string when columns contains special characters
 
-Error:
-    Try to fix this error with sqlitedb.py
-        ('2023-01-07', 7, 'Samedi') INSERT INTO day_plan ( day,day_nb,weekday_str) VALUES ( ?, ?, ? )
-    Traceback (most recent call last):
-      File "C:\Users\FBYZ6263\Documents\WORK_FOLDER\CVM\Push SMS\pywork\venv\lib\site-packages\kb_package\database\basedb.py", line 226, in insert_many
-        self._execute(cursor, script,
-      File "C:\Users\FBYZ6263\Documents\WORK_FOLDER\CVM\Push SMS\pywork\venv\lib\site-packages\kb_package\database\sqlitedb.py", line 72, in _execute
-        temp[k] = p[k]
-    TypeError: list indices must be integers or slices, not str
-
 Cdict: add recursive method for loads json strings

@@ -69,8 +69,11 @@ class SQLiteDB(BaseDB):
                         temp = {}
                         for k in p:
                             if ":" + str(k) not in script:
-                                temp[k] = p[k]
-                                temp = list(temp.values())
+                                if not isinstance(temp, dict):
+                                    temp.append(p[k])
+                                else:
+                                    temp[k] = p[k]
+                                    temp = list(temp.values())
                             else:
                                 if isinstance(temp, dict):
                                     temp[k] = p[k]
