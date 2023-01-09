@@ -689,7 +689,6 @@ class CustomDateTime:
                 if int(month) in range(1, 13) and int(day) <= 31:
                     got = True
             if not got:
-                print("ok")
                 month_ref = {}
                 v = ""
                 for key, value in CustomDateTime.MONTH.items():
@@ -740,13 +739,14 @@ class CustomDateTime:
         return date_value
 
     def to_string(self, sep=None, microsecond=False, force_time=False,
-                  d_format=None, t=True, intelligent=False):
+                  d_format=None, t=True, intelligent=False, approximative=True):
         if not force_time and t:
             t = (self._source.hour or self._source.minute
                  or self._source.second or self._source.microsecond)
         return self.datetime_as_string(self._source, sep=sep,
                                        microsecond=microsecond, time_=t,
-                                       d_format=d_format, intelligent=intelligent)
+                                       d_format=d_format, intelligent=intelligent,
+                                       approximative=approximative)
 
     @staticmethod
     def datetime_as_string(
@@ -754,7 +754,8 @@ class CustomDateTime:
                 str, datetime.datetime,
                 datetime.date] = "now",
             sep=None, microsecond=False,
-            time_=True, d_format=None, intelligent=False):
+            time_=True, d_format=None,
+            intelligent=False, approximative=True):
         """
         Use to get datetime formatting to str
         Args:
@@ -764,6 +765,7 @@ class CustomDateTime:
             time_: show time
             d_format: str
             intelligent: bool
+            approximative: bool
 
         Returns:
             str, the datetime str formatted
@@ -772,8 +774,8 @@ class CustomDateTime:
 
         current_time = CustomDateTime._parse(date_time)
         now = CustomDateTime()
-
-        if intelligent and now() >= current_time and now.date.year == current_time.date().year:
+        _months = [i for i in CustomDateTime.range_date(current_time.date(), now.date, freq="m")][1:]
+        if intelligent and now() >= current_time and len(_months) <= 12:
             if CustomDateTime.DEFAULT_LANG == "fr":
                 _msg_start = "Il y a"
                 _msg_end = ""
@@ -792,11 +794,14 @@ class CustomDateTime:
                     return _msg_start + " " + str(dts) + "s " + _msg_end
                 else:
                     return "Ce jour"
-            elif now.date.day - 1 == current_time.date().day:
+            elif now.date == CustomDateTime.from_calculation(current_time, "+1 day").date:
                 return ("Hier à " if CustomDateTime.DEFAULT_LANG == "fr" else "Yesterday ") + \
                        current_time.strftime("%H:%M" if time_ else "")
-            elif now.date.month == current_time.date().month and CustomDateTime.DEFAULT_LANG == "fr":
-                return "Le " + str(current_time.date().day) + " à " + current_time.strftime("%H:%M" if time_ else "")
+            elif now.date == current_time.replace(day=now.date.day).date() and CustomDateTime.DEFAULT_LANG == "fr":
+                return f"Le {current_time.date().day:0>2} à " + current_time.strftime("%H:%M" if time_ else "")
+            elif approximative:
+                _mois = (" mois" if CustomDateTime.DEFAULT_LANG == "fr" else " month ")
+                return _msg_start + " " + str(len(_months)) + _mois + _msg_end
             else:
                 return CustomDateTime.datetime_as_string(current_time, d_format="day month") + \
                        current_time.strftime("%H:%M" if time_ else "")
@@ -1467,5 +1472,5 @@ if __name__ == "__main__":
     d = CustomDateTime('12:50 28 déc 2022')
     print(d)
     print(d.to_string(d_format="y  md"))
-    print(CustomDateTime("2022-01-07 09:00").to_string(intelligent=True))
+    print(CustomDateTime("2022-02-07 09:00").to_string(intelligent=True))
 
