@@ -359,7 +359,7 @@ class BaseDB(abc.ABC):
         with self:
             if isinstance(arg, pandas.DataFrame):
                 dataset = arg
-            if isinstance(arg, DatasetFactory):
+            elif isinstance(arg, DatasetFactory):
                 dataset = arg.dataset
             elif isinstance(arg, str) and os.path.exists(arg):
                 dataset = DatasetFactory(arg, **kwargs).dataset

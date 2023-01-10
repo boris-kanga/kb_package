@@ -905,7 +905,7 @@ class CustomDateTime:
         date_time = cls._parse(date_time, **kwargs)
         if isinstance(minus_or_add, str):
             values = re.findall(
-                r"([-+])? *(\d+) +(days?|months?|years?|"
+                r"([-+])?\s*(\d+)\s*(days?|months?|years?|"
                 r"weeks?|hours?|mins?|minutes?|secs?|seconds?|"
                 r"microsecs?|microseconds?)",
                 minus_or_add)
