@@ -23,6 +23,12 @@ class OracleDB(BaseDB):
     def _get_name(self):
         return self.__class__.__name__
 
+    def _is_connected(self):
+        try:
+            return self.db_object.ping() is None
+        except (AttributeError, cx_Oracle.DatabaseError, Exception):
+            return False
+
     @staticmethod
     def connect(host="localhost",
                 user="root", password=None,

@@ -287,6 +287,9 @@ class BaseDB(abc.ABC):
 
         """
 
+    def _is_connected(self):
+        return True
+
     def commit(self):
         try:
             self.db_object.commit()
@@ -314,6 +317,10 @@ class BaseDB(abc.ABC):
 
         """
         self.LAST_SQL_CODE_RUN = script
+        if limit is None:
+            limit = INFINITE
+        if not self._is_connected():
+            self.reload_connexion()
         if self._cursor_ is not None:
             cursor = self._cursor_
         else:
