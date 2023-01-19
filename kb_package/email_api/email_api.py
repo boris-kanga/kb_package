@@ -3,16 +3,26 @@
 The Email parser API.
 Use for all emailing operation
 """
-
+import os
 import re
 import smtplib
 import ssl
 from collections.abc import Iterable
+from enum import Enum
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
+
+
+class MAILPriority(Enum):
+    # Plus haute importance
+    HIGHEST = 1
+    HIGH = 2
+    NORMAL = 3
+    LOW = 4
+    LOWEST = 5
 
 
 class EmailAPI:
@@ -27,78 +37,110 @@ class EmailAPI:
     @staticmethod
     def send_email(
             html_code,
-            header,
-            sender_email,
             receivers_email,
+            from_,
             subject,
-            bcc,
             password,
+            *,
+            user=None,
+            header=None,
             attached_files=None,
-            x_priority=1,
+            cc=None,
+            bcc=None,
+            priority=MAILPriority.NORMAL,
             smtp_type="SMTP_SSL",
+            host=EMAIL_SERVER_HOST,
+            port=None
     ):
         """
 
         Args:
             html_code: str, the html code to send
             header: str, the header
-            sender_email: str, email_api of the sender, used for email_api
+            from_: str, email_api of the sender, used for email_api
                 server
                 connection
             receivers_email: list|str, mails of receivers
             subject: str, the email_api subject
             bcc: str, BCC
-            password: str, the password for email_api server connection
+            cc: str
+            password: str, the password for email_api server connection,
+            user:
             attached_files: list, files to send with email_api
-            x_priority: int, x_priority
+            priority: int, x_priority
             smtp_type: str, smtp_type default SMTP_SSL
+            port:
+            host:
 
         Returns:
             None
         """
 
         attached_files = [] if attached_files is None else attached_files
+        if not isinstance(attached_files, (list, tuple)):
+            attached_files = [attached_files]
+        else:
+            attached_files = list(attached_files)
         receivers_email = (
-            receivers_email
-            if isinstance(receivers_email, list)
+            list(receivers_email)
+            if isinstance(receivers_email, (list, tuple))
             else [receivers_email]
         )
 
         message = MIMEMultipart()
         # Create a multipart message and set headers
-        message["From"] = formataddr((header, sender_email))
+        message["From"] = formataddr((header, from_))
         message["To"] = ",".join(receivers_email)
 
         message["Subject"] = subject
-        message["Bcc"] = bcc
-        message["X-Priority"] = str(x_priority)
+        if cc is not None:
+            cc = list(cc) if isinstance(cc, (tuple, list)) else [cc]
+            message["Cc"] = ",".join(cc)
+            receivers_email.extend(cc)
+        if bcc is not None:
+            bcc = list(bcc) if isinstance(bcc, (tuple, list)) else [bcc]
+            message["Bcc"] = ",".join(bcc)
+            receivers_email.extend(bcc)
+
+        message["X-Priority"] = str(priority)
 
         message.attach(MIMEText(html_code, "html"))
 
-        for file in attached_files:
+        for index, file in enumerate(attached_files):
             try:
+                if isinstance(file, dict):
+                    file = file.get("path")
+                    name = file.get("name", "attached_file_" + str(index + 1) + os.path.splitext(file)[1])
+                elif isinstance(file, str):
+                    name = os.path.basename(file)
+                else:
+                    file = str(file)
+                    name = os.path.basename(file)
                 with open(file, "rb") as attachment:
                     part = MIMEBase("application", "octet-stream")
                     part.set_payload(attachment.read())
-            except FileNotFoundError:
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        "attachment; filename={}".format(name),
+                    )
+                    message.attach(part)
+            except (FileNotFoundError, OSError, Exception):
                 pass
-            encoders.encode_base64(part)
-            part.add_header(
-                "Content-Disposition",
-                "attachment; filename={}".format(file),
-            )
-            message.attach(part)
 
         text = message.as_string()
         context = ssl.create_default_context()
         with getattr(smtplib, smtp_type.upper())(
-                EmailAPI.EMAIL_SERVER_HOST,
-                EmailAPI.EMAIL_SERVER_PORT[smtp_type.upper()],
-                **({} if smtp_type.upper() == "SMTP" else {"context":context})
+                host or EmailAPI.EMAIL_SERVER_HOST,
+                port or EmailAPI.EMAIL_SERVER_PORT[smtp_type.upper()],
+                **({} if smtp_type.upper() == "SMTP" else {"context": context})
         ) as server:
-            server.login(sender_email, password)
-            for receiver in receivers_email:
-                server.sendmail(sender_email, receiver, text)
+            if smtp_type.upper() == "SMTP":
+                server.starttls()
+            if user is None:
+                user = from_
+            server.login(user, password)
+            server.sendmail(from_, receivers_email, text)
 
     @staticmethod
     def get_render_from_file(file, params=None):
@@ -343,6 +385,7 @@ class EmailAPI:
 
 
 if __name__ == "__main__":
+    """
     params = {"nom": "TEST", "contenu": "OK"}
 
     EmailAPI.EMAIL_SERVER_HOST = "<host>"
@@ -359,3 +402,13 @@ if __name__ == "__main__":
                         "Contact",
                         bcc,
                         password, smtp_type="smtp")
+
+    """
+    EmailAPI.send_email("Juste un test",
+                        "kangaborisparfait@gmail.com",
+                        "parfait.kanga@orange.com", "<Subject>",
+                        "<Password>",
+                        user="",
+                        smtp_type="smtp",
+                        attached_files=[],
+                        host="192.168.4.161", port=25)
