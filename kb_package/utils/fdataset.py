@@ -463,7 +463,7 @@ class QueryTransformer(ast.NodeTransformer):
     def process(self, node: str | ast.AST, verbose=False, _for="query"):
         if isinstance(node, str):
             query, quoted_text_dict = tools.replace_quoted_text(node)
-            query = query.replace('\n', "")
+            query = query.replace('\n', " ")
             # replace = by ==
             query = re.sub(r"(?<![=><!])=(?![=])", "==", query, flags=re.I)
             # replace <> by !=
