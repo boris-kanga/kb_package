@@ -126,28 +126,13 @@ def remove_accent_from_text(text):
     return str(text)
 
 
-def read_datafile(file_path, drop_duplicates=False, drop_duplicates_on=None):
-    if bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN):
-        dataset = pandas.DataFrame()
-    elif os.path.splitext(file_path)[1][1:].lower() in ["xls", "xlsx", "xlsm", "xlsb"]:
-        dataset = pandas.read_excel(file_path)
-    else:
-        with open(file_path, encoding='latin1') as file:
-            if ";" in file.readline():
-                dataset = pandas.read_csv(file_path, sep=";", encoding='latin1')
-            else:
-                dataset = pandas.read_csv(file_path, encoding='latin1')
-
-    if drop_duplicates:
-
-        drop_duplicates_on = ([drop_duplicates_on]
-                              if isinstance(drop_duplicates_on, str)
-                              else drop_duplicates_on)
-        drop_duplicates_on = dataset.columns.intersection(drop_duplicates_on)
-        if drop_duplicates_on.shape[0]:
-            dataset.drop_duplicates(inplace=True,
-                                    subset=drop_duplicates_on, ignore_index=True)
-    return dataset
+def get_no_filepath(filepath):
+    index = 1
+    f, ext = os.path.splitext(filepath)
+    while os.path.exists(filepath):
+        index += 1
+        filepath = f + "_" + str(index) + ext
+    return filepath
 
 
 def format_var_name(name, sep="_", accent=False):
@@ -554,6 +539,7 @@ class CustomDateTime:
     @staticmethod
     def range_date(inf: Union[datetime.date, str], sup: Union[datetime.date, str, int] = None, step=1,
                    freq="day"):
+        assert isinstance(step, int) and step != 0, "Bad value of step param. %s given" % (step, )
         freq = freq.lower().strip()
         freq = freq[:-1] if len(freq) > 1 and freq[-1] == "s" else freq
         freq = (
@@ -597,25 +583,32 @@ class CustomDateTime:
         if freq in ["months", "years"]:
             sup = sup.date()
             inf = inf.date()
-            while inf <= sup:
-                yield inf
-                inf = CustomDateTime.from_calculation(inf, minus_or_add="1 " + freq).date
+            temp = inf
+            sign = 1 if sup > inf and step > 0 else -1
+            yield temp
+            while temp != sup:
+                temp = CustomDateTime.from_calculation(temp, minus_or_add=str(sign*abs(step)) + freq).date
+                yield temp
         else:
             if freq == "minutes":
-                d = int((sup - inf).total_seconds() / 60) + 1
+                d = int((sup - inf).total_seconds() / 60)
             elif freq == "hours":
-                d = int((sup - inf).total_seconds() / (60 * 60)) + 1
+                d = int((sup - inf).total_seconds() / (60 * 60))
             elif freq == "weeks":
-                d = int((sup - inf).days / 7) + 1
+                d = int((sup - inf).days / 7)
             else:
                 if freq in ["hours", "minutes", "seconds", "milliseconds"]:
                     pass
                 else:
+                    # day
                     sup = sup.date()
                     inf = inf.date()
-                d = getattr(sup - inf, freq) + 1
-            for i in range(0, d, step or 1):
-                yield inf + datetime.timedelta(**{freq: i})
+                d = getattr(sup - inf, freq)
+            sign = 1 if d > 0 and step > 0 else -1
+
+            d = int(abs(d) + 1)
+            for i in range(0, d, abs(step) or 1):
+                yield inf + datetime.timedelta(**{freq: i*sign})
 
     @staticmethod
     def _parse(date_value: Union[str, datetime.datetime,
