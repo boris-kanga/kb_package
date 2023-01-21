@@ -306,7 +306,7 @@ class BaseDB(abc.ABC):
         """
         Run a specific sql file
         Args:
-            script: str
+            script: str, or path to the sql code
             params: list|tuple|dict, params for the mysql prepared requests
             retrieve: bool, for select requests;
             limit: int nb of data to retrieve if retrieve
@@ -316,6 +316,12 @@ class BaseDB(abc.ABC):
         Returns: data results if retrieve
 
         """
+        try:
+            assert os.path.exists(script)
+            with open(script) as file:
+                script = file.read().strip()
+        except (AssertionError, OSError):
+            pass
         self.LAST_SQL_CODE_RUN = script
         if limit is None:
             limit = INFINITE
