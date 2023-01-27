@@ -585,10 +585,13 @@ class CustomDateTime:
             inf = inf.date()
             temp = inf
             sign = 1 if sup > inf and step > 0 else -1
-            yield temp
-            while temp != sup:
-                temp = CustomDateTime.from_calculation(temp, minus_or_add=str(sign*abs(step)) + freq).date
+            while True:
+                if sign == 1 and temp > sup:
+                    return
+                elif sign == -1 and temp < sup:
+                    return
                 yield temp
+                temp = CustomDateTime.from_calculation(temp, minus_or_add=str(sign*abs(step)) + freq).date
         else:
             if freq == "minutes":
                 d = int((sup - inf).total_seconds() / 60)
@@ -929,19 +932,20 @@ class CustomDateTime:
             delta = datetime.timedelta(**args)
 
             date_time = date_time + delta
+
             try:
-                date_time = date_time.replace(year=date_time.year + years)
+                while True:
+                    if date_time.month + months > 12 or date_time.month + months <= 0:
+                        years += 1 if months > 0 else -1
+                        months += -12 if months > 0 else 12
+                    else:
+                        break
+                date_time = date_time.replace(month=date_time.month + months, year=date_time.year + years)
             except ValueError:
-                assert date_time.month == 2, "An unknown error occurred"
-                date_time = date_time.replace(
-                    year=date_time.year + years,
-                    month=3, day=1) + datetime.timedelta(days=-1)
-            try:
-                date_time = date_time.replace(month=(date_time.month + months) % 13 or 1,
-                                              year=date_time.year + (date_time.month + months) // 13)
-            except ValueError:
+                assert date_time.month + months == 2, "An unknown error occurred"
                 date_time = date_time.replace(
                     month=date_time.month + months + 1,
+                    year=date_time.year + years,
                     day=1) + datetime.timedelta(days=-1)
 
         return cls(date_time)
