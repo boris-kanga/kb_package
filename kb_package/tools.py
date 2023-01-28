@@ -1452,17 +1452,24 @@ class BasicTypes:
         return re.match(BasicTypes.EMAIL_RE, value)
 
 
-def replace_quoted_text(text, quotes="\"'"):
+def replace_quoted_text(text, quotes="\"'", preserve=True, no_preserve_value=""):
+    if quotes is None:
+        quotes = "[\"']"
+    elif isinstance(quotes, str):
+        pass
+    elif BasicTypes.is_iterable(quotes):
+        quotes = "[" + ("|".join([str(d) for d in quotes])) + "]"
     # original_text = text
     modified_text = ""
     strings_replaced = {}
 
     # string_regex = fr"([{quotes}]).*?\1(?![A-Za-zÀ-ÖØ-öø-ÿ])"
-    string_regex = fr"([{quotes}])(?:(?=(\\?))\2.)*?\1"
+    string_regex = fr"({quotes})(?:(?=(\\?))\2.)*?\1"
     res = re.search(string_regex, text, flags=re.S)
     while res is not None:
         strings_replaced["kb_vars_" + str(len(strings_replaced))] = text[res.span()[0]: res.span()[1]]
-        modified_text += text[: res.span()[0]] + "kb_vars_" + str(len(strings_replaced) - 1)
+        modified_text += text[: res.span()[0]] + ("kb_vars_" + str(len(strings_replaced) - 1)
+                                                  if preserve else no_preserve_value)
         text = text[res.span()[1]:]
         res = re.search(string_regex, text, flags=re.S)
     modified_text += text
