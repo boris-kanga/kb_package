@@ -388,6 +388,10 @@ class Cdict(dict):
         else:
             data = kwargs
 
+        for k in data:
+            if isinstance(data[k], dict):
+                data[k] = Cdict(data[k])
+
         super().__init__(data)
         if self.NO_CAST_CONSIDER:
             self.key_eq = {str(k).lower(): k for k in self.keys()}
