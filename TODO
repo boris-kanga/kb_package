@@ -2,3 +2,5 @@ DatasetFactory:
     parse query string when columns contains special characters
 
 Cdict: add recursive method for loads json strings
+
+ExcelFactory: def method that retrieve the evaluate value of a cell
