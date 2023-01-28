@@ -61,12 +61,11 @@ class DatasetFactory:
         self._source.__delitem__(key)
 
     def save(self, path=None, force=False, **kwargs):
+        path = path or self._path
+        if path is None:
+            raise TypeError("save method required :param path argument")
         if "index" not in kwargs:
             kwargs["index"] = False
-        if path is None:
-            if self._path is None:
-                raise TypeError("save method required :param path argument")
-        path = path or self._path
         _base, ext = os.path.splitext(path)
         if force:
             i = 1
@@ -264,6 +263,8 @@ class DatasetFactory:
         return cls(dataset)
 
     def __add__(self, other):
+        if isinstance(other, self.__class__):
+            other = other.dataset
         if self._source.empty or (
                 len(self._source.columns) == len(other.columns) and all(self._source.columns == other.columns)):
             return DatasetFactory(pandas.concat([self._source, other], ignore_index=True, sort=False))
