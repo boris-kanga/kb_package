@@ -543,7 +543,7 @@ class CustomDateTime:
     @staticmethod
     def range_date(inf: Union[datetime.date, str], sup: Union[datetime.date, str, int] = None, step=1,
                    freq="day"):
-        assert isinstance(step, int) and step != 0, "Bad value of step param. %s given" % (step, )
+        assert isinstance(step, int) and step != 0, "Bad value of step param. %s given" % (step,)
         freq = freq.lower().strip()
         freq = freq[:-1] if len(freq) > 1 and freq[-1] == "s" else freq
         freq = (
@@ -595,7 +595,7 @@ class CustomDateTime:
                 elif sign == -1 and temp < sup:
                     return
                 yield temp
-                temp = CustomDateTime.from_calculation(temp, minus_or_add=str(sign*abs(step)) + freq).date
+                temp = CustomDateTime.from_calculation(temp, minus_or_add=str(sign * abs(step)) + freq).date
         else:
             if freq == "minutes":
                 d = int((sup - inf).total_seconds() / 60)
@@ -615,7 +615,7 @@ class CustomDateTime:
 
             d = int(abs(d) + 1)
             for i in range(0, d, abs(step) or 1):
-                yield inf + datetime.timedelta(**{freq: i*sign})
+                yield inf + datetime.timedelta(**{freq: i * sign})
 
     @staticmethod
     def _parse(date_value: Union[str, datetime.datetime,
@@ -1452,23 +1452,35 @@ class BasicTypes:
         return re.match(BasicTypes.EMAIL_RE, value)
 
 
+def _get_new_kb_text(string, root="kb_vars"):
+    """
+    Internal utils function
+    """
+    i = 0
+    temp = root
+    while temp in string:
+        i += 1
+        temp = str(i) + "_" + root
+    return temp
+
+
 def replace_quoted_text(text, quotes="\"'", preserve=True, no_preserve_value=""):
     if quotes is None:
         quotes = "[\"']"
     elif isinstance(quotes, str):
-        pass
+        quotes = re.escape(quotes)
     elif BasicTypes.is_iterable(quotes):
-        quotes = "[" + ("|".join([str(d) for d in quotes])) + "]"
+        quotes = "[" + ("|".join([re.escape(str(d)) for d in quotes])) + "]"
     # original_text = text
     modified_text = ""
     strings_replaced = {}
-
+    base_var_name = _get_new_kb_text(text) + "_"
     # string_regex = fr"([{quotes}]).*?\1(?![A-Za-zÀ-ÖØ-öø-ÿ])"
     string_regex = fr"({quotes})(?:(?=(\\?))\2.)*?\1"
     res = re.search(string_regex, text, flags=re.S)
     while res is not None:
         strings_replaced["kb_vars_" + str(len(strings_replaced))] = text[res.span()[0]: res.span()[1]]
-        modified_text += text[: res.span()[0]] + ("kb_vars_" + str(len(strings_replaced) - 1)
+        modified_text += text[: res.span()[0]] + (base_var_name + str(len(strings_replaced) - 1)
                                                   if preserve else no_preserve_value)
         text = text[res.span()[1]:]
         res = re.search(string_regex, text, flags=re.S)
@@ -1476,9 +1488,128 @@ def replace_quoted_text(text, quotes="\"'", preserve=True, no_preserve_value="")
     return modified_text, strings_replaced
 
 
-if __name__ == "__main__":
-    d = CustomDateTime('12:50 28 déc 2022')
-    print(d)
-    print(d.to_string(d_format="y  md"))
-    print(CustomDateTime("2022-02-07 09:00").to_string(intelligent=True))
+def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE, flags=re.S, *,
+                      internal_var=None):
+    """
+    use regex to split text using symbol_start and symbol_end.
+        Possibility tu split using logic like
+            start = {% (for|end) text %}
+            end = {% end\1 %} -- where \1 refer to the extracted element in start regex
 
+    """
+    if symbol_end is None:
+        symbol_end = symbol_start
+        maximum_deep = 1
+    if internal_var is None:
+        # calcul de no_exists_character
+        no_exists_character = _get_new_kb_text(text) + "_"
+    else:
+        no_exists_character = internal_var + "_"
+
+    def split_func(reg, string):
+        original_text = string
+        split_text = []
+        try:
+            res = re.search(reg, string, flags=flags)
+            while res is not None:
+                # before
+                split_text.append(string[:res.span()[0]])
+                #
+                groups = res.groups()
+                match = string[res.span()[0]: res.span()[1]]
+                if len(groups):
+                    match = (match, *groups)
+                split_text.append(match)
+                string = string[res.span()[1]:]
+                res = re.search(reg, string, flags=flags)
+
+            if string:
+                split_text.append(string)
+        except re.error:
+            return [original_text]
+        return split_text
+
+    deep = 0
+
+    text_part = split_func(symbol_start, text)
+    _structures = {}
+    current_structure = ""
+    structure_content = ""
+    current_args = ()
+    epsilon = ""
+
+    for i, part in enumerate(text_part):
+        # print("[", i, "] showing part", part.__repr__(), deep)
+        if isinstance(part, (tuple, list)):
+            part = list(part)
+            epsilon += part[0]
+        else:
+            epsilon += part
+
+        if i % 2 == 1:
+            # part is a new symbol_start
+            args = ()
+            if isinstance(part, list):
+                args = part[1:]
+                part = part[0]
+            if not deep:
+                structure_content = ""
+                current_structure = part
+                current_args = tuple(args)
+            else:
+                structure_content += part
+                current_structure += part
+            deep += 1
+            # print("---new part", repr(part), current_args)
+
+        else:
+            if len(current_args):
+                consider_symbol_end = ""
+                for car in symbol_end:
+                    _is_var = list(filter(lambda x: chr(x) == car, range(1, min(len(current_args) + 1, 9))))
+                    if _is_var:
+                        car = re.escape(current_args[_is_var[0] - 1])
+                    consider_symbol_end += car
+            else:
+                consider_symbol_end = symbol_end
+            # print("final end reg", consider_symbol_end)
+            reach = False
+            for ii, end_part in enumerate(split_func(consider_symbol_end, part)):
+                if not reach:
+                    current_structure += end_part
+                if ii % 2 == 1:
+                    # end_part is a symbol_end
+                    deep -= 1
+                if deep:
+                    structure_content += end_part
+                else:
+                    reach = True
+
+                #print("==> [", ii, "]", "end part", repr(end_part), "deep==", deep, ", content",
+                #          repr(structure_content))
+            # print("at all structure==", repr(current_structure))
+        if deep == 0 and i > 0:
+            index = no_exists_character + str(len(_structures))
+            epsilon = epsilon.replace(current_structure, index, 1)
+            if maximum_deep > 1:
+                eps, sub_structures = extract_structure(structure_content, symbol_start, symbol_end,
+                                                        maximum_deep=maximum_deep - 1, flags=flags,
+                                                        internal_var=index)
+                if sub_structures:
+                    # internal structure found
+                    _structures[index] = current_structure.replace(structure_content, eps, 1)
+                    _structures.update(sub_structures)
+                else:
+                    _structures[index] = current_structure
+            else:
+                _structures[index] = current_structure
+    return epsilon, _structures
+
+
+if __name__ == "__main__":
+    print(extract_structure("""
+    <p>Blabla </p>{% if test %} <div> OK </div> {% endif %} <span>Fin</span>
+    """,
+                            symbol_start=r"{%\s(if|for).+?\s%}",
+                            symbol_end="{%\send\1\s%}",
+                            maximum_deep=2, flags=re.S | re.I))
