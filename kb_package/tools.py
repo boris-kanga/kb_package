@@ -1488,7 +1488,8 @@ def replace_quoted_text(text, quotes="\"'", preserve=True, no_preserve_value="")
     return modified_text, strings_replaced
 
 
-def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE, flags=re.S, *,
+def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE, only_content=False,
+                      flags=re.S, *,
                       internal_var=None):
     """
     use regex to split text using symbol_start and symbol_end.
@@ -1585,24 +1586,25 @@ def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE
                 else:
                     reach = True
 
-                #print("==> [", ii, "]", "end part", repr(end_part), "deep==", deep, ", content",
+                # print("==> [", ii, "]", "end part", repr(end_part), "deep==", deep, ", content",
                 #          repr(structure_content))
             # print("at all structure==", repr(current_structure))
         if deep == 0 and i > 0:
             index = no_exists_character + str(len(_structures))
             epsilon = epsilon.replace(current_structure, index, 1)
+            _structure = current_structure if not only_content else structure_content
             if maximum_deep > 1:
                 eps, sub_structures = extract_structure(structure_content, symbol_start, symbol_end,
                                                         maximum_deep=maximum_deep - 1, flags=flags,
-                                                        internal_var=index)
+                                                        internal_var=index, only_content=only_content)
                 if sub_structures:
                     # internal structure found
-                    _structures[index] = current_structure.replace(structure_content, eps, 1)
+                    _structures[index] = _structure.replace(structure_content, eps, 1)
                     _structures.update(sub_structures)
                 else:
-                    _structures[index] = current_structure
+                    _structures[index] = _structure
             else:
-                _structures[index] = current_structure
+                _structures[index] = _structure
     return epsilon, _structures
 
 
