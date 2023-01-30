@@ -1479,9 +1479,9 @@ def replace_quoted_text(text, quotes=None, preserve=True, no_preserve_value=""):
     string_regex = fr"({quotes})(?:(?=(\\?))\2.)*?\1"
     res = re.search(string_regex, text, flags=re.S)
     while res is not None:
-        strings_replaced["kb_vars_" + str(len(strings_replaced))] = text[res.span()[0]: res.span()[1]]
-        modified_text += text[: res.span()[0]] + (base_var_name + str(len(strings_replaced) - 1)
-                                                  if preserve else no_preserve_value)
+        index = base_var_name + f"{len(strings_replaced)}" + "_"
+        strings_replaced[index] = text[res.span()[0]: res.span()[1]]
+        modified_text += text[: res.span()[0]] + (index if preserve else no_preserve_value)
         text = text[res.span()[1]:]
         res = re.search(string_regex, text, flags=re.S)
     modified_text += text
@@ -1591,7 +1591,7 @@ def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE
             # print("at all structure==", repr(current_structure))
         if deep == 0 and i > 0:
             index = no_exists_character + str(len(_structures))
-            epsilon = epsilon.replace(current_structure, index, 1)
+            epsilon = epsilon.replace(current_structure, index + "__", 1)
             _structure = current_structure if not only_content else structure_content
             if maximum_deep > 1:
                 eps, sub_structures = extract_structure(structure_content, symbol_start, symbol_end,
@@ -1599,18 +1599,18 @@ def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE
                                                         internal_var=index, only_content=only_content)
                 if sub_structures:
                     # internal structure found
-                    _structures[index] = _structure.replace(structure_content, eps, 1)
+                    _structures[index + "__"] = _structure.replace(structure_content, eps, 1)
                     _structures.update(sub_structures)
                 else:
-                    _structures[index] = _structure
+                    _structures[index + "__"] = _structure
             else:
-                _structures[index] = _structure
+                _structures[index + "__"] = _structure
     return epsilon, _structures
 
 
 if __name__ == "__main__":
     print(extract_structure("""
-    <p>Blabla </p>{% if test %} <div> OK </div> {% endif %} <span>Fin</span>
+    <p>Blabla </p>{% if test %} <div>  {% if ok %}OK {% endif %} </div> {% endif %} <span>Fin</span>
     """,
                             symbol_start=r"{%\s(if|for).+?\s%}",
                             symbol_end="{%\send\1\s%}",
