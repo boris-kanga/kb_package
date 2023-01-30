@@ -1464,7 +1464,7 @@ def _get_new_kb_text(string, root="kb_vars"):
     return temp
 
 
-def replace_quoted_text(text, quotes="\"'", preserve=True, no_preserve_value=""):
+def replace_quoted_text(text, quotes=None, preserve=True, no_preserve_value=""):
     if quotes is None:
         quotes = "[\"']"
     elif isinstance(quotes, str):
