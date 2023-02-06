@@ -65,6 +65,9 @@ def safe_eval_math(calculation, params=None, method="expr", result_var="result",
         return ""
 
 
+# check for 1.8e308 -> in python it is the inf
+# all number [-5,0 ⨉ 10 -324, 5,0 ⨉ 10 -324] == 0
+
 def _init_infinite(self, s=1):
     self._s = s > 0
 
@@ -777,7 +780,7 @@ class CustomDateTime:
         _months = [i for i in CustomDateTime.range_date(current_time.date(), now.date, freq="m")][1:]
         if intelligent and now() >= current_time and len(_months) <= 12:
             if CustomDateTime.DEFAULT_LANG == "fr":
-                _msg_start = "Il y a"
+                _msg_start = "Il y a "
                 _msg_end = ""
             else:
                 _msg_start = ""
@@ -787,11 +790,11 @@ class CustomDateTime:
                     dts = int((now() - current_time).total_seconds())
                     _h = int(dts // (60 * 60))
                     if _h > 0:
-                        return _msg_start + " " + "1 h" + " " + _msg_end
+                        return _msg_start + "1 h" + " " + _msg_end
                     _m = int(dts // 60)
                     if _m > 0:
-                        return _msg_start + " " + str(_m) + "m " + _msg_end
-                    return _msg_start + " " + str(dts) + "s " + _msg_end
+                        return _msg_start + str(_m) + "m " + _msg_end
+                    return _msg_start + str(dts) + "s " + _msg_end
                 else:
                     return "Ce jour"
             elif now.date == CustomDateTime.from_calculation(current_time, "+1 day").date:
@@ -799,9 +802,14 @@ class CustomDateTime:
                        current_time.strftime("%H:%M" if time_ else "")
             elif now.date == current_time.replace(day=now.date.day).date() and CustomDateTime.DEFAULT_LANG == "fr":
                 return f"Le {current_time.date().day:0>2} à " + current_time.strftime("%H:%M" if time_ else "")
+            elif (now.date - current_time.date()).days < 30:
+                s = "s" if (now.date - current_time.date()).days>1 else ""
+                _jour = (" jour%s" % s) if CustomDateTime.DEFAULT_LANG == "fr" else (" day%s " % s)
+                return _msg_start + str((now.date - current_time.date()).days) + _jour + _msg_end
             elif approximative:
-                _mois = (" mois" if CustomDateTime.DEFAULT_LANG == "fr" else " month ")
-                return _msg_start + " " + str(len(_months)) + _mois + _msg_end
+                s = "s" if len(_months) > 1 else ""
+                _mois = (" mois" if CustomDateTime.DEFAULT_LANG == "fr" else " month%s " % s)
+                return _msg_start + str(len(_months)) + _mois + _msg_end
             else:
                 return CustomDateTime.datetime_as_string(current_time, d_format="day month") + \
                        current_time.strftime("%H:%M" if time_ else "")
@@ -1460,7 +1468,7 @@ def _get_new_kb_text(string, root="kb_vars"):
     temp = root
     while temp in string:
         i += 1
-        temp = str(i) + "_" + root
+        temp = "var_" + str(i) + "_" + root
     return temp
 
 
@@ -1489,7 +1497,7 @@ def replace_quoted_text(text, quotes=None, preserve=True, no_preserve_value=""):
 
 
 def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE, only_content=False,
-                      flags=re.S, *,
+                      flags=re.S, sep="", preserve=True, *,
                       internal_var=None):
     """
     use regex to split text using symbol_start and symbol_end.
@@ -1514,6 +1522,9 @@ def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE
             res = re.search(reg, string, flags=flags)
             while res is not None:
                 # before
+                if res.span() == (0, 0):
+                    # show warning bad split arg given
+                    return [string]
                 split_text.append(string[:res.span()[0]])
                 #
                 groups = res.groups()
@@ -1576,6 +1587,8 @@ def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE
             # print("final end reg", consider_symbol_end)
             reach = False
             for ii, end_part in enumerate(split_func(consider_symbol_end, part)):
+                if isinstance(end_part, (tuple, list)):
+                    end_part = end_part[0]
                 if not reach:
                     current_structure += end_part
                 if ii % 2 == 1:
@@ -1591,11 +1604,12 @@ def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE
             # print("at all structure==", repr(current_structure))
         if deep == 0 and i > 0:
             index = no_exists_character + str(len(_structures))
-            epsilon = epsilon.replace(current_structure, index + "__", 1)
+            epsilon = epsilon.replace(current_structure, (index + "__" + sep) if preserve else "", 1)
             _structure = current_structure if not only_content else structure_content
             if maximum_deep > 1:
                 eps, sub_structures = extract_structure(structure_content, symbol_start, symbol_end,
                                                         maximum_deep=maximum_deep - 1, flags=flags,
+                                                        sep=sep,
                                                         internal_var=index, only_content=only_content)
                 if sub_structures:
                     # internal structure found
