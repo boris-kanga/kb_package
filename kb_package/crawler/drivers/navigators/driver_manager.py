@@ -57,6 +57,7 @@ class DriverManager:
             )
         if not isinstance(options, options_class):
             driver_options_argument = kwargs.get("driver_options_argument", [])
+
             driver_options_argument.extend(
                 [
                     "--no-sandbox",
@@ -74,8 +75,10 @@ class DriverManager:
             for arg in driver_options_argument:
                 options.add_argument(arg)
         options.headless = headless
-        # options.add_argument("--disable-extensions")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-extensions")
         # options.add_argument("--disable-infobars")
         if binary_location is not None:
+            print(binary_location)
             options.binary_location = binary_location
         return options

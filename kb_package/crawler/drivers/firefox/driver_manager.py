@@ -25,6 +25,8 @@ class DriverManager(ParentDriverManager):
     PATH = os.path.dirname(__file__)
     PATH_TO_REF = os.path.join(PATH, "last_ref.json")
 
+    FIREFOX_BINARY = None
+
     def __init__(self):
         self.info_platform = tools.get_platform_info()
         exe = "zip"
@@ -50,10 +52,14 @@ class DriverManager(ParentDriverManager):
                 -1]
 
         elif platform == "win32":
-            firefox_path = tools.search_file("firefox.exe",
-                                             "Mozilla Firefox",
-                                             from_path="C:\\",
-                                             depth=3)
+            if self.FIREFOX_BINARY is None:
+                firefox_path = tools.search_file("firefox.exe",
+                                                 "Mozilla Firefox",
+                                                 from_path="C:\\",
+                                                 depth=3)
+                self.FIREFOX_BINARY = firefox_path
+            else:
+                firefox_path = self.FIREFOX_BINARY
             assert firefox_path is not None, f"{self.NAME.title()} " \
                                              f"not found"
             cmd = '"' + firefox_path + '" -v|more'
@@ -104,9 +110,9 @@ class DriverManager(ParentDriverManager):
                                n_version: Union[int, str] = None):
         if n_version is None:
             n_version = self.find_navigator_version
-        assert n_version is not None, "Fail to find CHROME version"
+        assert n_version is not None, "Fail to find Firefox version"
         firefox_version = str(n_version)
-        start_v = int(firefox_version.split(".")[0])
+        start_v = firefox_version.split(".")[0]
         last_ref = tools.CustomFileOpen(self.PATH_TO_REF)
         last_versions = last_ref.data.get(start_v, [])
 
@@ -162,7 +168,15 @@ class DriverManager(ParentDriverManager):
         return extra_args
 
     def get_options(self, **kwargs):
-        return self.get_default_options(**kwargs)
+        options = self.get_default_options(**kwargs)
+        if "binary_location" not in kwargs and sys.platform == "win32":
+            if self.FIREFOX_BINARY is None:
+                self.FIREFOX_BINARY = tools.search_file("firefox.exe",
+                                                        "Mozilla Firefox",
+                                                        from_path="C:\\",
+                                                        depth=3)
+            options.binary_location = self.FIREFOX_BINARY
+        return options
 
     def get_profile(self, **kwargs):
         profile = self.get_default_profile(**kwargs)

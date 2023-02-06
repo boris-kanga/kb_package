@@ -16,7 +16,7 @@ import typing
 
 try:
     from fake_useragent import UserAgent
-except ImportError:
+except (ImportError, Exception):
     class UserAgent:
         pass
 from selenium import webdriver
@@ -74,6 +74,7 @@ class CustomDriver:
                                  "releases"
     DEFAULT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36' \
                  ' (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
+    _USE_FAKE_USER_AGENT = False
 
     def __init__(self, *args, **kwargs):
         self._driver = None
@@ -116,9 +117,7 @@ class CustomDriver:
         return getattr(self._driver, item)
 
     def __enter__(self):
-        print("in enter", self._driver)
         if self._driver is None:
-
             self.create()
         return self._driver
 
@@ -147,15 +146,19 @@ class CustomDriver:
         Get random user agent
         Returns: dict, like {"chrome":[UA], "firefox":[UA]}
         """
-        try:
-            return UserAgent().data_browsers
-        except (IndexError, AttributeError, Exception):
-            return {
+        default = {
                 k: [
                     CustomDriver.DEFAULT_UA
                 ]
-                for k in CustomDriver.SET_OF_NAVIGATOR.values()
+                for k in CustomDriver.SET_OF_NAVIGATOR.keys()
             }
+        if not CustomDriver._USE_FAKE_USER_AGENT:
+            return default
+        try:
+            ref = {v: k for k, v in CustomDriver.SET_OF_NAVIGATOR.items()}
+            return {ref[k]: v for k, v in UserAgent().data_browsers.items()}
+        except (IndexError, AttributeError, Exception):
+            return default
 
     @staticmethod
     def screenshot_all_page(driver, scroll_what=None, bottom_selector=None,
@@ -323,7 +326,7 @@ class CustomDriver:
             executable_path=None,
             logger=CustomLogger("CustomDriver"),
             extensions: list = None,
-            max_try=3,
+            max_try=1,
             sleep_time=5,
             maximize=True,
             extra_args=None
@@ -481,16 +484,20 @@ class CustomDriver:
             navigator = _get_default_navigator()
         assert isinstance(navigator, (int, str)), error_navigator
         if isinstance(navigator, str):
-            assert navigator.lower() in \
-                   CustomDriver.SET_OF_NAVIGATOR.values(), error_navigator
-            navigator_str = navigator.lower()
-            navigator = {v: k for k, v
-                         in CustomDriver.SET_OF_NAVIGATOR.items()}[
-                navigator_str]
+            if navigator.lower() == "chromium":
+                navigator = 1
+                navigator_str = "chromium"
+            else:
+                assert navigator.lower() in \
+                       CustomDriver.SET_OF_NAVIGATOR.values() or navigator.lower() == "chromium", error_navigator
+                navigator_str = navigator.lower()
+                navigator = {v: k for k, v
+                             in CustomDriver.SET_OF_NAVIGATOR.items()}[
+                    navigator_str]
         else:
             assert navigator in CustomDriver.SET_OF_NAVIGATOR, error_navigator
             navigator_str = CustomDriver.SET_OF_NAVIGATOR[navigator]
-        kwargs["headless"] = kwargs.get("headless", bool(os.environ.get("CUSTOM-DRIVER-HEALESS")))
+        kwargs["headless"] = kwargs.get("headless", bool(os.environ.get("CUSTOM-DRIVER-HEADLESS")))
         default_executable_path = None
         plugin_file = str(os.getpid()) + "-plugin."
         plugin_extension = "xpi"
@@ -514,9 +521,8 @@ class CustomDriver:
         ua = None
 
         if random_user_agent:
-            ua = random.choice(CustomDriver.create_user_agent()[navigator_str])
+            ua = random.choice(CustomDriver.create_user_agent()[navigator])
         user_agent = kwargs.get("default_ua", kwargs.get("ua", ua))
-        print(user_agent, random_user_agent)
         kwargs["default_ua"] = user_agent
 
         extensions = None
@@ -566,6 +572,7 @@ class CustomDriver:
 
             for executable_path in driver_manager.generate_webdriver_exe(
                     n_version=n_version):
+                print(executable_path)
                 try:
                     os.chmod(executable_path, 0o755)
                 except (PermissionError, Exception):

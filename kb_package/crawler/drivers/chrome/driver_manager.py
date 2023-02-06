@@ -14,11 +14,14 @@ from kb_package.crawler.drivers.navigators.driver_manager import (
 
 class DriverManager(ParentDriverManager):
     NAME = "chrome"
+    TRUTH_NAME = "Chrome"
     URL_FOR_WEB_DRIVER_VERSION = "https://chromedriver.chromium.org/downloads"
     URL_FOR_EXE = "https://chromedriver.storage.googleapis.com/" \
                   "%s/chromedriver_%s.zip"
     PATH = os.path.dirname(__file__)
     PATH_TO_REF = os.path.join(PATH, "last_ref.json")
+
+    CHROME_BINARY = None
 
     def __init__(self):
         self.info_platform = tools.get_platform_info()
@@ -31,14 +34,21 @@ class DriverManager(ParentDriverManager):
     def find_navigator_version(self):
         platform = sys.platform
         if platform == "linux":
-            cmd = "google-chrome --version"
+            if self.NAME.lower() == "chrome":
+                cmd = "google-chrome --product-version"
+            else:
+                cmd = "chromium-browser --product-version"
             return os.popen(cmd).read().strip().split(" ")[-1]
 
         elif platform == "win32":
-            chrome_path = tools.search_file("chrome.exe", "Application",
-                                            from_path="C:\\",
-                                            depth=4)
-            assert chrome_path is not None, f"{self.NAME.title()} " \
+            if self.CHROME_BINARY is None:
+                chrome_path = tools.search_file("chrome.exe", "Application",
+                                                from_path="C:\\",
+                                                depth=4)
+                self.CHROME_BINARY = chrome_path
+            else:
+                chrome_path = self.CHROME_BINARY
+            assert chrome_path is not None, f"{self.TRUTH_NAME.title()} " \
                                             f"not found"
             cmd = "powershell -command \"&{(Get-Item '%s')." \
                   "VersionInfo.ProductVersion}\"" % chrome_path
@@ -46,6 +56,7 @@ class DriverManager(ParentDriverManager):
             return os.popen(cmd).read().strip()
         elif platform == "darwin":
             # for mac
+            # check for chromium
             cmd = "/Applications/Google\ Chrome.app/Contents/MacOS/Google\ " \
                   "Chrome --version"
             return os.popen(cmd).read().strip().split(" ")[-1]
@@ -87,7 +98,7 @@ class DriverManager(ParentDriverManager):
         start_v = chrome_version.split(".")[0]
         last_ref = tools.CustomFileOpen(self.PATH_TO_REF)
         last_versions = last_ref.data.get(start_v, [])
-
+        print(last_versions)
         for v in last_versions:
             final_file = self.download_exe(v)
             if final_file is not None:
@@ -96,15 +107,22 @@ class DriverManager(ParentDriverManager):
         response = requests.get(self.URL_FOR_WEB_DRIVER_VERSION)
 
         page_object = bs4.BeautifulSoup(response.text, "html.parser")
-        versions = [re.match(fr"chromedriver\s({start_v}\.[\d.]+)",
+        versions = [re.match(r"chromedriver\s([\d.]+)",
                              a.text.strip().lower(),
                              flags=re.I).groups()[0]
                     for a in page_object.select("a.XqQF9c:not(.rXJpyf)")
-                    if re.match(fr"chromedriver\s{start_v}\.[\d.]+",
-                                a.text.strip().lower(), flags=re.I)]
-
+                    if re.match(r"chromedriver\s([\d.]+)",
+                                a.text.strip().lower(),
+                                flags=re.I)]
+        _versions = [{
+            "dx": abs(int(v.split(".")[0].strip()) - int(start_v)),
+            "v": v
+        } for v in versions]
+        versions = [v["v"] for v in _versions if v["dx"] == min([v["dx"] for v in _versions])]
         last_ref.data[start_v] = list(set(versions))
         last_ref.save()
+
+        print(versions)
 
         for v in versions:
             final_file = self.download_exe(v)
@@ -139,6 +157,9 @@ class DriverManager(ParentDriverManager):
 
         chrome_pref = {}
 
+        if 'binary_location' in kwargs:
+            self.CHROME_BINARY = kwargs.get('binary_location')
+
         # cache config setting
         # images
         if not use_image:
@@ -164,7 +185,9 @@ class DriverManager(ParentDriverManager):
             chrome_pref["plugins.always_open_pdf_externally"] = True
 
         chrome_pref.update(custom_preferences)
+        options.add_argument("--no-sandbox")
         options.add_experimental_option("prefs", chrome_pref)
+        options.add_experimental_option("useAutomationExtension", False)
         if user_agent is not None:
             options.add_argument(f"user-agent={user_agent}")
 
