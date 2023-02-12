@@ -125,9 +125,9 @@ class CustomLogger:
         if self.base_file_name is not None:
             log_file = self.base_file_name
             if self.max_size is not None:
-                log_file += "_" + tools.CustomDateTime.datetime_as_string(
+                log_file += "_" + (tools.CustomDateTime.datetime_as_string(
                     sep="-", microsecond=True
-                )
+                )).replace(":", "_").replace(" ", "__")
             log_file += self.extension
             if not os.path.isdir(self.log_dir):
                 os.makedirs(self.log_dir, exist_ok=True)
