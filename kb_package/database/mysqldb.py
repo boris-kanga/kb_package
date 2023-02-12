@@ -47,7 +47,7 @@ class MysqlDB(BaseDB):
         try:
             return mysql.connector.connect(
                 host=host, user=user, passwd=password, database=db_name,
-                port=port
+                port=port or MysqlDB.DEFAULT_PORT
             )
         except Exception as ex:
             ex.args = ["Une erreur lors que la connexion à la base de donnée --> " + str(ex.args[0])] + \
