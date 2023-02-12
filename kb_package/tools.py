@@ -144,7 +144,7 @@ def format_var_name(name, sep="_", accent=False):
         reg = r"[^ \w\d_]"
     else:
         reg = r'[^ a-zA-Z\d_]'
-    name = sep.join([p for p in re.sub(reg, '', str(name), flags=re.I).strip().split(" ") if p])
+    name = sep.join([p for p in re.sub(reg, '', str(name), flags=re.I).strip().split() if p])
     return name[1:] if name.startswith(sep) else name
 
 
