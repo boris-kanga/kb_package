@@ -15,14 +15,22 @@ from kb_package.database.basedb import BaseDB
 
 
 class MysqlDB(BaseDB):
+    DEFAULT_PORT = 3306
+
     @property
     def _get_name(self):
         return self.__class__.__name__
 
+    def _is_connected(self):
+        try:
+            return self.db_object.is_connected()
+        except (AttributeError, mysql.connector.errors.DatabaseError, Exception):
+            return False
+
     @staticmethod
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
-            port=3306, **kwargs
+            port=DEFAULT_PORT, **kwargs
     ) -> mysql.connector.MySQLConnection:
         """
         Making the connexion to the mysql database
@@ -47,7 +55,7 @@ class MysqlDB(BaseDB):
             raise ex
 
     def _cursor(self):
-        return self.db_object.cursor()
+        return self.db_object.cursor(dictionary=True)
 
     @staticmethod
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
@@ -81,13 +89,22 @@ class MysqlDB(BaseDB):
 
     @staticmethod
     def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
+        if not cursor.with_rows:
+            return None
+        MysqlDB.LAST_REQUEST_COLUMNS = []
 
         data = []
         try:
+            got = False
             while len(data) < limit:
-                row = cursor.fetch()
+                row = cursor.fetchone()
                 if not row:
                     break
+                if not got:
+                    MysqlDB.LAST_REQUEST_COLUMNS = list(row.keys())
+                    got = True
+                if not dict_res:
+                    row = list(row.values())
                 data.append(row)
         except (Exception, mysql.connector.errors.ProgrammingError):
             pass
@@ -115,6 +132,6 @@ class MysqlDB(BaseDB):
                 except (mysql.connector.errors.ProgrammingError,
                         Exception) as ex:
                     traceback.print_exc()
-                    self.communicate_error(ex)
+                    self._print_error(ex)
                     datas = None
             return datas

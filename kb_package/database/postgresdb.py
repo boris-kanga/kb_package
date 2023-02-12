@@ -16,6 +16,12 @@ class PostgresDB(BaseDB):
     def _get_name(self):
         return self.__class__.__name__
 
+    def _is_connected(self):
+        try:
+            return not self.db_object.closed
+        except (AttributeError, psycopg2.Error, Exception):
+            return False
+
     DEFAULT_PORT = 5432
 
     @staticmethod
@@ -65,8 +71,7 @@ class PostgresDB(BaseDB):
         return data
 
     @staticmethod
-    def _execute(cursor, script, params=None, ignore_error=False,
-                 connexion=None):
+    def _execute(cursor, script, params=None, ignore_error=False, connexion=None, **kwargs):
         """
         use to make preparing requests
         Args:
