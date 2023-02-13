@@ -59,7 +59,7 @@ class MysqlDB(BaseDB):
         return ["?" for _ in data], list(data.values())
 
     def _cursor(self):
-        return self.db_object.cursor(dictionary=True)
+        return self.db_object.cursor()
 
     @staticmethod
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
@@ -95,20 +95,16 @@ class MysqlDB(BaseDB):
     def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
         if not cursor.with_rows:
             return None
-        MysqlDB.LAST_REQUEST_COLUMNS = []
+        MysqlDB.LAST_REQUEST_COLUMNS = cursor.column_names
 
         data = []
         try:
-            got = False
             while len(data) < limit:
                 row = cursor.fetchone()
                 if not row:
                     break
-                if not got:
-                    MysqlDB.LAST_REQUEST_COLUMNS = list(row.keys())
-                    got = True
-                if not dict_res:
-                    row = list(row.values())
+                if dict_res:
+                    row = dict(zip(cursor.column_names, row))
                 data.append(row)
         except (Exception, mysql.connector.errors.ProgrammingError):
             pass
