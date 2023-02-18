@@ -187,6 +187,15 @@ def extract_file(path, member=None, to_directory='.', file_type=None, pwd=None):
             getattr(open_obj, method)(**kwargs)
 
 
+def image_to_base64(path):
+    import mimetypes
+    import base64
+    content_type = mimetypes.guess_type(path)[0] or "images/jpeg"
+    with open(path, "rb") as file:
+        return f"data:{content_type};charset=utf-8;base64," + \
+                           base64.b64encode(file.read()).decode("utf-8")
+
+
 def get_platform_info():
     platform = sys.platform
     if platform == "win32":
@@ -1358,6 +1367,8 @@ def format_number(nb=1000, m_sep=" "):
 class BasicTypes:
     EMAIL_RE = r"^([\w\-\.]+@(?:[\w-]+\.)+[\w-]{2,4})$"
     NUMBER_RE = r"^\(?(?:00|\+)?(?:%(indicatif)s\)?)?(\d{1,2})?(\d{8})$"
+    LINK_RE = r'^(?:https?://)?(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b' \
+              r'([-a-zA-Z0-9()@:%_+.~#?&/=]*)$'
 
     @staticmethod
     def pnn_ci(number, plus="+", only_orange=False, permit_fixe=True, *, reseau=None):
@@ -1458,6 +1469,10 @@ class BasicTypes:
     @staticmethod
     def is_email(value):
         return re.match(BasicTypes.EMAIL_RE, value)
+
+    @staticmethod
+    def is_link(value):
+        return re.match(BasicTypes.LINK_RE, value, flags=re.I)
 
 
 def _get_new_kb_text(string, root="kb_vars"):

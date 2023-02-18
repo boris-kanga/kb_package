@@ -1,4 +1,4 @@
-DatasetFactory:
-    parse query string when columns contains special characters
+EmailApi:
+    Parse html code for detect all img where the source is not on internet[local image] and transfrom them to base64 image
 
 ExcelFactory: def method that retrieve the evaluate value of a cell

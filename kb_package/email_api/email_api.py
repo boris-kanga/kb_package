@@ -7,13 +7,16 @@ import os
 import re
 import smtplib
 import ssl
-from collections.abc import Iterable
 from enum import Enum
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
+
+import bs4
+
+from kb_package.tools import BasicTypes, image_to_base64
 
 
 class MAILPriority(Enum):
@@ -39,8 +42,8 @@ class EmailAPI:
             html_code,
             receivers_email,
             from_,
-            subject,
             password,
+            subject=None,
             *,
             user=None,
             header=None,
@@ -75,6 +78,7 @@ class EmailAPI:
         Returns:
             None
         """
+        # html_code = EmailAPI.parse_final_email(html_code)
 
         attached_files = [] if attached_files is None else attached_files
         if not isinstance(attached_files, (list, tuple)):
@@ -312,7 +316,7 @@ class EmailAPI:
                             ).groups()[0]
                         iterator_object = iterator_object.split(",")
                         for truth_iterator in iterable_object:
-                            if not isinstance(truth_iterator, Iterable):
+                            if not BasicTypes.is_iterable(truth_iterator):
                                 truth_iterator = [truth_iterator]
                             params_copy = {}
                             for index, key in enumerate(iterator_object):
@@ -383,6 +387,20 @@ class EmailAPI:
 
         return text
 
+    @staticmethod
+    def parse_final_email(html_code):
+        html_code = bs4.BeautifulSoup(html_code, "lxml")
+        for img in html_code.find_all("img"):
+            src = img.attrs["src"]
+            if BasicTypes.is_link(src):
+                pass
+            else:
+                try:
+                    img.attrs["src"] = image_to_base64(src)
+                except FileNotFoundError:
+                    pass
+        return str(html_code)
+
 
 if __name__ == "__main__":
     """
@@ -406,9 +424,11 @@ if __name__ == "__main__":
     """
     EmailAPI.send_email("Juste un test",
                         "kangaborisparfait@gmail.com",
-                        "parfait.kanga@orange.com", "<Subject>",
-                        "<Password>",
+                        "parfait.kanga@orange.com",
+                        password="<Password>",
                         user="",
+                        header="",
+                        subject="",
                         smtp_type="smtp",
                         attached_files=[],
                         host="192.168.4.161", port=25)
