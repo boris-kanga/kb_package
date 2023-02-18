@@ -1,3 +1,6 @@
 from .sqlitedb import SQLiteDB
-from .oracledb import OracleDB
+try:
+    from .oracledb import OracleDB
+except ImportError:
+    pass
 from .database_manager import DatabaseManager

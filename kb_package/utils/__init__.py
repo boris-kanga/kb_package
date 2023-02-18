@@ -1,5 +1,8 @@
 from .fdataset import DatasetFactory
-from .fexcel import ExcelFactory
+try:
+    from .fexcel import ExcelFactory
+except (ImportError, Exception):
+    pass
 
 __all__ = [
     "DatasetFactory",
