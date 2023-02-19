@@ -85,7 +85,9 @@ class MysqlDB(BaseDB):
             getattr(cursor, method)(script, **params)
             return cursor
         except Exception as ex:
+            print("*"*100)
             print(script, params)
+            print("*" * 100)
             traceback.print_exc()
             if ignore_error:
                 return None
