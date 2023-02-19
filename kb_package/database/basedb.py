@@ -159,7 +159,8 @@ class BaseDB(abc.ABC):
         script = "INSERT INTO " + str(table_name) + \
                  " ( " + ",".join(part_vars) + \
                  ") VALUES ( " + ", ".join(xx) + " ) "
-
+        if self._get_name == "PostgresDB" and retrieve_id:
+            script += " RETURNING id"
         if cur is None:
             if self._cursor_:
                 cursor = self._cursor_
@@ -170,10 +171,13 @@ class BaseDB(abc.ABC):
         return_object = cursor
         self._execute(cursor, script, params=value)
         if retrieve_id:
-            cursor = self.last_insert_rowid_logic(cursor, table_name)
-            return_object = self.get_all_data_from_cursor(cursor, limit=1)
-            if isinstance(return_object, (list, tuple)):
-                return_object = 0 if not len(return_object) else return_object[0]
+            if self._get_name == "MysqlDB":
+                return_object = cursor.lastrowid
+            else:
+                cursor = self.last_insert_rowid_logic(cursor, table_name)
+                return_object = self.get_all_data_from_cursor(cursor, limit=1)
+                if isinstance(return_object, (list, tuple)):
+                    return_object = 0 if not len(return_object) else return_object[0]
         if cur is None and not self._cursor_:
             self.commit()
         return return_object
@@ -217,9 +221,8 @@ class BaseDB(abc.ABC):
         first_value = dataset[0]
         part_vars = [str(k) for k in first_value.keys()]
 
-        xx, value = self.prepare_insert_data(first_value)
+        xx, _ = self.prepare_insert_data(first_value)
 
-        # value = [v if v is not None else "null" for v in value.values()]
         script = "INSERT INTO " + str(table_name) + \
                  " ( " + ",".join(part_vars) + \
                  ") VALUES ( " + ", ".join(xx) + " ) "
@@ -301,7 +304,173 @@ class BaseDB(abc.ABC):
     def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
         return []
 
-    def run_script(self, script: typing.Union[list, str], params=None, retrieve=True, limit=INFINITE,
+    @staticmethod
+    def _script_tokenizer(sql):
+        # prepare sql code
+        sql = BaseDB._uncomment_sql(sql, sigle_line_symbole="--")
+        sql_without_quote, quotes_ref = tools.replace_quoted_text(sql, quotes="'")
+        sql_without_quote = sql_without_quote.strip()
+        if not sql_without_quote.endswith(";"):
+            sql_without_quote += ";"
+
+        # check for delimiters (mysql delimiter [\W+|//] ... end [\W+|//] )
+
+        # spec case of PACKAGE BODY
+        script_without_package, package_ref = tools.extract_structure(
+            sql_without_quote,
+            symbol_start=r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?PACKAGE\s+BODY\s+(?:\w+.)(\w+)\s+(?:IS|AS)",
+            symbol_end="^\\s*END\\s+\1\\s*;(?:^\\s*/)?",
+            maximum_deep=1, flags=re.S | re.I | re.M, sep=";"
+        )
+        script, proc_refs = tools.extract_structure(
+            script_without_package,
+            symbol_start=r"^\s*(?:PROCEDURE\s.+?|DECLARE.+?|"
+                         r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE|TRIGGER)\s.+?)"
+                         r"^\s*BEGIN",
+            symbol_end=r"^\s*END\s*;(?:\s*/)?",
+            maximum_deep=1, flags=re.S | re.I | re.M, sep=";")
+
+        queries = []
+        for query in script.split(";"):
+            # recalculation
+            for k in proc_refs:
+                query = query.replace(k, proc_refs[k])
+            for k in package_ref:
+                query = query.replace(k, package_ref[k])
+            for k in quotes_ref:
+                query = query.replace(k, quotes_ref[k])
+
+            query = query.strip()
+            if len(query):
+                queries.append(query)
+        return queries
+
+    @staticmethod
+    def _uncomment_sql(script, sigle_line_symbole="--", show_comments_func=None):
+        if sigle_line_symbole is None:
+            sigle_line_symbole = ["--", "#"]
+        elif isinstance(sigle_line_symbole, str):
+            sigle_line_symbole = [sigle_line_symbole]
+        sigle_line_symbole = "|".join(sigle_line_symbole)
+        final_script = ""
+
+        comments_list = []
+        # multiline comment remove
+        query, r = tools.replace_quoted_text(script)
+        query, comments = tools.extract_structure(
+            query,
+            symbol_start=r"/\*",
+            symbol_end=r"\*/",
+            maximum_deep=1, flags=re.S, preserve=False
+        )
+        comments_list.extend(list(comments.values()))
+
+        qquery = query.split("\n")
+        for line in qquery:
+            line = re.split(sigle_line_symbole, line, maxsplit=1)
+            final_script += line[0]
+            comments_list.extend(line[1:])
+        for k in r:
+            final_script = final_script.replace(k, r[k])
+            for i in range(len(comments_list)):
+                comments_list[i] = comments_list[i].replace(k, r[k])
+        if callable(show_comments_func):
+            show_comments_func("Got comments: " + repr(comments_list))
+        return final_script
+
+    @staticmethod
+    def _prepare_query(sql, params=None, ignore_error=False):
+        query, r = tools.replace_quoted_text(sql)
+        final_params = {}
+        # 1 for args like ":var"; 0 for ?
+        query_prepare_type = 1
+        nb_var = 0
+        got = False
+        code = ""
+        if "?" in query:
+            got = True
+            final_params = []
+            query_prepare_type = 0
+
+            if isinstance(params, (list, tuple, dict)):
+                params = list(params)
+            else:
+                params = []
+            res = re.search(r"(\sin\s*)?\?", query)
+            i = 0
+            code = ""
+            while res:
+                nb_var += 1
+                code += query[:res.span()[0]]
+                try:
+                    pp = params[i]
+                except IndexError:
+                    if not ignore_error:
+                        raise ValueError(
+                            "Prepared args " + (str(i + 1)) + " in the script is not specify:" + repr(sql))
+                    pp = None
+                if res.groups()[0]:
+                    code += " in "
+                    if tools.BasicTypes.is_iterable(pp) or pp is None:
+                        pp = list(pp) or [None] if pp is not None else [None]
+                        final_params.extend(pp)
+                        code += "(" + (','.join(["?" for _ in pp])) + ")"
+                    else:
+                        final_params.append(pp)
+                        code += "?"
+                else:
+                    code += "?"
+                    final_params.append(pp)
+        elif re.search(r":\w+\W", query + " "):
+            got = True
+            code = ""
+            res = re.search(r"(\sin\s*)?:(\w+)(\W)", query + " ")
+            while res:
+                nb_var += 1
+                code += query[:res.span()[0]]
+                _, i, sep = res.groups()[1]
+                try:
+                    pp = params[i]
+                except (KeyError, Exception):
+                    if not ignore_error:
+                        raise ValueError("Prepared args (" + i + ") in the script is not specify:" + repr(sql))
+                    pp = None
+
+                if res.groups()[0]:
+                    code += " in "
+                    if tools.BasicTypes.is_iterable(pp) or pp is None:
+                        pp = list(pp) or [None] if pp is not None else [None]
+                        code += "("
+                        for e in pp:
+                            index = tools._get_new_kb_text(query + code, "in_elem")
+                            final_params[index] = e
+                            code += ":"+index + ","
+                        code = code[:-1]
+                        code += ")" + sep
+                    else:
+                        final_params[i] = pp
+                        code += ":" + i + sep
+                else:
+                    final_params[i] = pp
+                    code += ":" + i + sep
+
+        if got:
+            for k in r:
+                code = code.replace(k, r[k])
+        else:
+            code = sql
+        return code, final_params, query_prepare_type, nb_var
+
+    @staticmethod
+    def _get_sql_type(script):
+        res = re.search(r"^(delete|select|insert|update|with|merge|create|replace|alter"
+                        r"|commit|truncate|call|rename|[a-z]+)",
+                        script.strip(), flags=re.I)
+        if res:
+            return res.groups()[0]
+        return "unknown"
+
+    def run_script(self, script: typing.Union[list, str], params=None, retrieve=None, limit=INFINITE,
                    ignore_error=False, dict_res=False):
         """
         Run a specific sql file
@@ -316,13 +485,16 @@ class BaseDB(abc.ABC):
         Returns: data results if retrieve
 
         """
-        try:
-            assert os.path.exists(script)
-            with open(script) as file:
-                script = file.read().strip()
-        except (AssertionError, OSError):
-            pass
-        self.LAST_SQL_CODE_RUN = script
+        if isinstance(script, str):
+            try:
+                assert os.path.exists(script)
+                with open(script) as file:
+                    script = file.read().strip()
+            except (AssertionError, OSError, Exception):
+                pass
+            script = self._script_tokenizer(script)
+
+        self.LAST_SQL_CODE_RUN = ";".join(script)
         if limit is None:
             limit = INFINITE
         if not self._is_connected():
@@ -332,23 +504,31 @@ class BaseDB(abc.ABC):
         else:
             cursor = self.get_cursor()
         try:
-            if isinstance(script, str):
-                script = [script]
             for s in script:
-                cursor = self._execute(cursor, s, params=params,
+                s, consider_params, _type, nb_var = self._prepare_query(s, params, ignore_error)
+                cursor = self._execute(cursor, s, params=consider_params,
                                        ignore_error=False,
                                        connexion=self.db_object)
+                if _type == 0:
+                    if isinstance(params, (list, tuple, dict)):
+                        params = list(params)
+                    else:
+                        params = []
+                    for _ in range(nb_var):
+                        params.pop(0)
         except Exception as ex:
-            print("*" * 10, "Got error when try to run", "*" * 10)
-            print(self.LAST_SQL_CODE_RUN)
-            print("**" * 10)
-            traceback.print_exc()
+            self._print_info("*" * 10, "Got error when try to run", "*" * 10)
+            self._print_info(self.LAST_SQL_CODE_RUN)
+            self._print_info("**" * 10)
             self._print_error(ex)
 
             if not ignore_error:
                 raise Exception(ex)
+            return
 
         self.commit()
+        if retrieve is None:
+            retrieve = self._get_sql_type(script[0]).lower() in ("with", "select")
         if retrieve:
             data = self.get_all_data_from_cursor(cursor, limit=limit, dict_res=dict_res)
             if dict_res:
