@@ -413,6 +413,7 @@ class BaseDB(abc.ABC):
                         raise ValueError(
                             "Prepared args " + (str(i + 1)) + " in the script is not specify:" + repr(sql))
                     pp = None
+                i += 1
                 _groups = res.groups()
                 if _groups[0]:
                     code += " in "
