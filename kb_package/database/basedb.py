@@ -503,6 +503,7 @@ class BaseDB(abc.ABC):
             cursor = self._cursor_
         else:
             cursor = self.get_cursor()
+        consider_params = None
         try:
             for s in script:
                 s, consider_params, _type, nb_var = self._prepare_query(s, params, ignore_error)
@@ -518,7 +519,7 @@ class BaseDB(abc.ABC):
                         params.pop(0)
         except Exception as ex:
             self._print_info("*" * 10, "Got error when try to run", "*" * 10)
-            self._print_info(self.LAST_SQL_CODE_RUN)
+            self._print_info(self.LAST_SQL_CODE_RUN, consider_params)
             self._print_info("**" * 10)
             self._print_error(ex)
 
