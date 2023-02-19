@@ -29,9 +29,6 @@ class DatabaseManager:
         assert db_class, "Don't find"
         return db_class(uri, **kwargs)
 
-    def set_logger(self, logger):
-        self.db_object.set_logger(logger)
-
     def __getattr__(self, item):
         return getattr(self.db_object, item)
 
