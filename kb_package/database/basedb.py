@@ -429,6 +429,7 @@ class BaseDB(abc.ABC):
                     final_params.append(pp)
                 # relance
                 res = re.search(r"(\sin\s*)?(\?|%s)", query)
+            code += query
         elif re.search(r"(:\w+\W|%\(\w+\)s\W)", query + " "):
             got = True
             code = ""
@@ -474,6 +475,7 @@ class BaseDB(abc.ABC):
                         code += "%(" + i + ")s" + sep
                 # relance
                 res = re.search(r"(\sin\s*)?(:(\w+)|%\((\w+)\)s)(\W)", query + " ")
+            code += query
 
         if got:
             for k in r:
