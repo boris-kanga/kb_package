@@ -5,6 +5,9 @@ class DatabaseManager:
     MYSQL = "mysql"
     MONGO = "mongo"
     POSTGRES = "postgres"
+    __slots__ = ("run_script", "close_connection", "insert", "reload_connexion",
+                 "connect", "set_logger", "insert_many", "get_cursor", "commit",
+                 "create_table", "dump")
 
     def __new__(cls, db_type: str = "mysql", uri=None, **kwargs):
         """
