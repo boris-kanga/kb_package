@@ -381,27 +381,31 @@ class BaseDB(abc.ABC):
     @staticmethod
     def _prepare_query(sql, params=None, ignore_error=False):
         query, r = tools.replace_quoted_text(sql)
+        origin_transform_query = query
         final_params = {}
         # 1 for args like ":var"; 0 for ?
         query_prepare_type = 1
         nb_var = 0
         got = False
         code = ""
-        if "?" in query:
+        if "?" in query or "%s" in query:
             got = True
             final_params = []
             query_prepare_type = 0
-
-            if isinstance(params, (list, tuple, dict)):
+            if isinstance(params, dict):
+                params = list(params.values())
+            elif isinstance(params, (list, tuple)):
                 params = list(params)
             else:
                 params = []
-            res = re.search(r"(\sin\s*)?\?", query)
+            res = re.search(r"(\sin\s*)?(\?|%s)", query)
             i = 0
             code = ""
+
             while res:
                 nb_var += 1
                 code += query[:res.span()[0]]
+                query = query[res.span()[1]:]
                 try:
                     pp = params[i]
                 except IndexError:
@@ -409,26 +413,31 @@ class BaseDB(abc.ABC):
                         raise ValueError(
                             "Prepared args " + (str(i + 1)) + " in the script is not specify:" + repr(sql))
                     pp = None
-                if res.groups()[0]:
+                _groups = res.groups()
+                if _groups[0]:
                     code += " in "
                     if tools.BasicTypes.is_iterable(pp) or pp is None:
                         pp = list(pp) or [None] if pp is not None else [None]
                         final_params.extend(pp)
-                        code += "(" + (','.join(["?" for _ in pp])) + ")"
+                        code += "(" + (','.join([_groups[1] for _ in pp])) + ")"
                     else:
                         final_params.append(pp)
-                        code += "?"
+                        code += _groups[1]
                 else:
-                    code += "?"
+                    code += _groups[1]
                     final_params.append(pp)
-        elif re.search(r":\w+\W", query + " "):
+                # relance
+                res = re.search(r"(\sin\s*)?(\?|%s)", query)
+        elif re.search(r"(:\w+\W|%\(\w+\)s\W)", query + " "):
             got = True
             code = ""
-            res = re.search(r"(\sin\s*)?:(\w+)(\W)", query + " ")
+            res = re.search(r"(\sin\s*)?(:(\w+)|%\((\w+)\)s)(\W)", query + " ")
             while res:
                 nb_var += 1
                 code += query[:res.span()[0]]
-                _, i, sep = res.groups()[1]
+                query = query[res.span()[1]:]
+                struc, i, ii, sep = res.groups()[1:]
+                i = i or ii
                 try:
                     pp = params[i]
                 except (KeyError, Exception):
@@ -442,17 +451,28 @@ class BaseDB(abc.ABC):
                         pp = list(pp) or [None] if pp is not None else [None]
                         code += "("
                         for e in pp:
-                            index = tools._get_new_kb_text(query + code, "in_elem")
+                            index = tools._get_new_kb_text(origin_transform_query + code, "in_elem")
                             final_params[index] = e
-                            code += ":"+index + ","
+                            if struc.startswith(":"):
+                                code += ":" + index + ","
+                            else:
+                                code += "%(" + index + ")s,"
                         code = code[:-1]
                         code += ")" + sep
                     else:
                         final_params[i] = pp
-                        code += ":" + i + sep
+                        if struc.startswith(":"):
+                            code += ":" + i + sep
+                        else:
+                            code += "%(" + i + ")s" + sep
                 else:
                     final_params[i] = pp
-                    code += ":" + i + sep
+                    if struc.startswith(":"):
+                        code += ":" + i + sep
+                    else:
+                        code += "%(" + i + ")s" + sep
+                # relance
+                res = re.search(r"(\sin\s*)?(:(\w+)|%\((\w+)\)s)(\W)", query + " ")
 
         if got:
             for k in r:
