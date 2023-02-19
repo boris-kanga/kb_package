@@ -191,7 +191,7 @@ class CustomLogger:
                     self._create_new_logger_handler()
         try:
             msg = str(msg) % args
-        except TypeError:
+        except (TypeError, Exception):
             msg = " ".join([str(msg)] + [str(p) for p in args])
         getattr(self.writer, level.lower())(msg, **kwargs)
         if self.callback and self.callback_each_logging:
