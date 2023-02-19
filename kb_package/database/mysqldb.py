@@ -57,7 +57,7 @@ class MysqlDB(BaseDB):
     @staticmethod
     def prepare_insert_data(data: dict):
         # for dict params %(name)s
-        return ["%s" for _ in data], list(data.values())
+        return [f"%({d})s" for d in data], data
 
     def _cursor(self):
         return self.db_object.cursor()
