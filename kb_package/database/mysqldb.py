@@ -56,6 +56,7 @@ class MysqlDB(BaseDB):
 
     @staticmethod
     def prepare_insert_data(data: dict):
+        # for dict params %(name)s
         return ["%s" for _ in data], list(data.values())
 
     def _cursor(self):
@@ -76,10 +77,12 @@ class MysqlDB(BaseDB):
         """
         if method == "many":
             method = "executemany"
+            params = {"seq_params": params}
         else:
             method = "execute"
+            params = {"params": params}
         try:
-            getattr(cursor, method)(script, params=params)
+            getattr(cursor, method)(script, **params)
             return cursor
         except Exception as ex:
             traceback.print_exc()
