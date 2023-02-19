@@ -97,27 +97,14 @@ def working(index, row, control):
 
 
 def processing(file=None, save_file=None, index=None):
-    if index is None:
-        if file is None:
-            file = r"C:\Users\FBYZ6263\Downloads\josias\company.csv"
-    else:
-        file = "josias_base_" + str(index) + ".csv"
-        save_file = "josias_base_" + str(index) + "_export.json"
-    if save_file is None:
-        save_file = "aide_josias.json"
-
-    if "2" in file or "3" in file:
-        for c in MAIN_CONTROL:
-            c.pop("Contacts", None)
-
-    if "3" in file:
-        for c in MAIN_CONTROL:
-            c.pop("Adresse", None)
+    save_file = "josias_base_" + str(index) + "_export.json"
+    file = str(index) + ".xlsx"
 
     company = DatasetFactory(file)
 
     while True:
         data = read_json_file(save_file, [])
+        data = [d for d in data if isinstance(d, dict)]
         company = company.loc[max([d["index"] for d in data] + [-1]) + 1:]
         print("Got", company.shape[0], "datas to check")
 
