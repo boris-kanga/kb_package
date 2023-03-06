@@ -113,8 +113,8 @@ class EmailAPI:
         for index, file in enumerate(attached_files):
             try:
                 if isinstance(file, dict):
+                    name = file.get("name", "attached_file_" + str(index + 1) + os.path.splitext(file.get("path"))[1])
                     file = file.get("path")
-                    name = file.get("name", "attached_file_" + str(index + 1) + os.path.splitext(file)[1])
                 elif isinstance(file, str):
                     name = os.path.basename(file)
                 else:
