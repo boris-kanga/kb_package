@@ -5,6 +5,7 @@ Use like pandas.DataFrame extension.
 
 """
 from __future__ import annotations
+from builtins import Ellipsis
 import ast
 
 import os
@@ -28,37 +29,9 @@ from kb_package.logger import CustomLogger
 Logger = CustomLogger("DatasetFactory")
 
 
-def _parse_default_col_name(item, _preserve, _ignore_case, _columns):
-    if not isinstance(item, str):
-        return item
-    if not _preserve:
-        _item = tools.format_var_name(item)
-        if _ignore_case:
-            _item = _item.upper()
-        if _item in _columns:
-            return _item
-    return item
-
-
-def _preserve_or_transform_columns(dataset, preserve, ignore_case):
-    if not preserve:
-        renamed_col = {}
-        warning_msg = []
-        for ii, col in enumerate(dataset.columns):
-            if isinstance(col, str):
-                col_ = tools.format_var_name(col, accent=False)
-                if not col:
-                    col_ = "Columns_" + str(ii)
-                if ignore_case:
-                    col_ = col_.upper()
-                renamed_col[col] = col_
-                if col.upper() != col_:
-                    warning_msg.append(repr(col) + " -> " + col_)
-        if warning_msg:
-            Logger.warning("Going to rename columns:", ",".join(warning_msg))
-
-        dataset.rename(columns=renamed_col, inplace=True)
-    return dataset
+# agg custom func
+def count_distinct(s):
+    return len(s.unique())
 
 
 class DatasetFactory:
@@ -66,58 +39,108 @@ class DatasetFactory:
     IGNORE_CASE = True
 
     def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict] = None, ignore_case=None,
-                 preserve=False, **kwargs):
+                 preserve=False, dd=False, drop_on=None, **kwargs):
         # cls = self.__class__
         # cls.from_file.__code__.co_varnames
-        self._path = None
-        self._preserve = preserve
-        self._ignore_case = self.IGNORE_CASE if ignore_case is None else ignore_case
+        self.__path = None
+        self.__ignore_case = self.IGNORE_CASE if ignore_case is None else ignore_case
         if isinstance(dataset, str):
-            self._path = dataset
+            self.__path = dataset
         if dataset is None:
-            self._source = pandas.DataFrame()
+            self.__source = pandas.DataFrame()
         elif not isinstance(dataset, pandas.DataFrame) or (hasattr(dataset, "readable") and dataset.readable()):
-            self._source = self.from_file(dataset, **kwargs, ignore_case=self._ignore_case, preserve=preserve).dataset
+            self.__source = self.from_file(dataset, **kwargs, ignore_case=self.__ignore_case, preserve=preserve).dataset
         else:
-            self._source = _preserve_or_transform_columns(dataset, preserve=preserve,
-                                                          ignore_case=ignore_case)
+            self.__source = dataset
+        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+        self._preserve = preserve
 
-    def __parse_default_col_name(self, item):
-        return _parse_default_col_name(item, _preserve=self._preserve,
-                                       _ignore_case=self._ignore_case,
-                                       _columns=self._source.columns)
+        if dd or kwargs.get("drop_duplicates") or kwargs.get("rd"):
+            if drop_on is None:
+                drop_on = kwargs.get("r_on") or kwargs.get("d_on") or kwargs.get("drop_duplicates_on")
+            self.doublon(drop_on=drop_on)
 
+    # Ok
+    @staticmethod
+    def __parse_col(col, columns):
+        for item in columns:
+            if tools.Var(item) == col:
+                return item
+        return col
+
+    # Ok
+    def __parse_default_col_name(self, col):
+        return self.__parse_col(col, self.columns)
+
+    # Ok
+    def doublon(self, drop_on=None, keep="first"):
+        if drop_on is None:
+            drop_on = self.columns
+        else:
+            drop_on = ([drop_on] if isinstance(drop_on, str) else drop_on)
+
+            drop_on = [self.__parse_default_col_name(k) for k in drop_on]
+
+            drop_on = self.columns.intersection(drop_on)
+        if drop_on.shape[0]:
+            self.drop_duplicates(inplace=True, keep=keep, subset=drop_on, ignore_index=True)
+
+    # Ok
     def __getattr__(self, item, default=None):
         item = self.__parse_default_col_name(item)
         # maybe methods or accessible attribute like columns
         try:
-            return getattr(self.dataset, item)
+            return getattr(self.__source, item)
         except AttributeError as ex:
             if default:
                 return default
             raise ex
 
+    # Ok
     def __setitem__(self, key, value):
         key = self.__parse_default_col_name(key)
-        if self._ignore_case and not self._preserve and isinstance(key, str):
-            key = key.upper()
-        self.dataset.__setitem__(key, value)
+        self.__source.__setitem__(key, value)
+        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
 
+    # Ok
     def __getitem__(self, item):
         item = self.__parse_default_col_name(item)
-        return self.dataset.__getitem__(item)
+        return self.__source.__getitem__(item)
 
+    # Ok
     def __len__(self):
-        return self._source.shape[0]
+        return self.__source.shape[0]
 
+    # Ok
     def __delitem__(self, key):
         key = self.__parse_default_col_name(key)
-        self._source.__delitem__(key)
+        self.__source.__delitem__(key)
+        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
 
-    def save(self, path=None, force=False, **kwargs):
-        path = path or self._path
+    # Ok
+    def __delattr__(self, item):
+        key = self.__parse_default_col_name(item)
+        self.__source.__delitem__(key)
+        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+
+    # Ok
+    def __setattr__(self, key, value):
+        if (key in ["_DatasetFactory" + pp for pp in ["__source", "__path", "__ignore_case"]] or
+                key in ("columns", "_preserve")):
+            super().__setattr__(key, value)
+            return
+        key = self.__parse_default_col_name(key)
+        setattr(self.__source, key, value)
+        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+
+    # Ok
+    def save(self, path=None, force=False, chdir=True, **kwargs):
+        path = path or self.__path
+
         if path is None:
             raise TypeError("save method required :param path argument")
+        if chdir:
+            self.__path = path
         if "index" not in kwargs:
             kwargs["index"] = False
         _base, ext = os.path.splitext(path)
@@ -127,17 +150,27 @@ class DatasetFactory:
                 path = _base + "_" + str(i) + ext
                 i += 1
         if ext.lower() in [".xls", ".xlsx", ".xlsb"]:
-            self._source.to_excel(path, **kwargs)
+            self.__source.to_excel(path, **kwargs)
         elif ext.lower() in [".csv", ".txt", ""]:
-            self._source.to_csv(path, **kwargs)
+            self.__source.to_csv(path, **kwargs)
         return path
 
+    # Ok
     @property
     def dataset(self):
-        return self._source
+        return self.__source.rename(columns={k: self.columns[i] for i, k in enumerate(self.__source.columns)})
 
+    # Ok
+    def __str__(self):
+        return self.dataset.__str__() + "\n<kb_package | DatasetFactory>"
+
+    # Ok
+    def __repr__(self):
+        return self.dataset.__repr__() + "\n<kb_package | DatasetFactory>"
+
+    # Ok
     @staticmethod
-    def _format_other(other, logic, **kwargs):
+    def _format_other(other, logic):
         if isinstance(logic, dict):
             source_ref = logic["source"]
             other_ref = logic["exclude"]
@@ -154,64 +187,61 @@ class DatasetFactory:
             other = pandas.DataFrame({other_ref: other})
         elif isinstance(other, DatasetFactory):
             other = other.dataset
-        other = DatasetFactory(other, **kwargs).dataset
-        if not isinstance(other, pandas.DataFrame):
-            raise ValueError("Bad value of other given: %s" % other)
+        other = DatasetFactory(other)
         return other, source_ref, other_ref
 
-    def __str__(self):
-        return self.dataset.__str__() + " -> <kb_package | DatasetFactory>"
+    # Ok
+    def cmerge(self,
+               other: typing.Union[list, pandas.Series, pandas.DataFrame, str],
+               exclusion_logic: typing.Union[dict, list, tuple, str],
+               op=None, columns=None, suffixes=None, how="left"):
 
-    def __repr__(self):
-        return self.dataset.__repr__() + " -> <kb_package | DatasetFactory>"
-
-    def c_merge(self,
-                other: typing.Union[list, pandas.Series, pandas.DataFrame, str],
-                exclusion_logic: typing.Union[dict, list, tuple, str],
-                op="both", columns=None, suffixes=None):
-        kwargs = {"ignore_case": self._ignore_case, "preserve": self._preserve}
-        other, source_ref, other_ref = self._format_other(other, exclusion_logic, **kwargs)
+        other, source_ref, other_ref = self._format_other(other, exclusion_logic)
         dataset = self.dataset.copy(deep=True)
         if isinstance(source_ref, str):
-            source_ref = _parse_default_col_name(source_ref, _preserve=self._preserve,
-                                                 _ignore_case=self._ignore_case,
-                                                 _columns=self._source.columns)
-        else:
-            Logger.warning("use DataFrame merge method simply")
+            source_ref = [source_ref]
         if isinstance(other_ref, str):
-            other_ref = _parse_default_col_name(source_ref, _preserve=self._preserve,
-                                                _ignore_case=self._ignore_case,
-                                                _columns=other.columns)
-        else:
-            Logger.warning("use DataFrame merge method simply")
+            other_ref = [other_ref]
+        ref_size = min(len(source_ref), len(other_ref))
+        for i in range(ref_size):
+            s_ref = self.__parse_default_col_name(source_ref[i])
+            o_ref = other.__parse_default_col_name(other_ref[i])
+            other_ref[i] = o_ref
+            source_ref[i] = s_ref
+            if is_numeric_dtype(dataset[s_ref]) and is_object_dtype(other[o_ref]):
+                dataset[s_ref] = dataset[s_ref].apply(str)
+            elif is_numeric_dtype(other[o_ref]) and is_object_dtype(dataset[s_ref]):
+                other[o_ref] = other[o_ref].apply(str)
 
-        if is_numeric_dtype(dataset[source_ref]) and is_object_dtype(other[other_ref]):
-            dataset[source_ref] = dataset[source_ref].apply(str)
-        elif is_numeric_dtype(other[other_ref]) and is_object_dtype(dataset[source_ref]):
-            other[other_ref] = other[other_ref].apply(str)
-        result = dataset.merge(other,
-                               left_on=source_ref,
-                               right_on=other_ref,
-                               how="left",
+        result = dataset.merge(other.dataset,
+                               left_on=source_ref[:ref_size],
+                               right_on=other_ref[:ref_size],
+                               how=how,
                                indicator=True,
                                suffixes=suffixes or ("", "_y"))
         if columns is None:
             columns = result.columns
-        result = result.loc[result._merge == op, columns]
+        if isinstance(op, str):
+            result = result.loc[result._merge == op, columns]
+        else:
+            result = result.loc[:, columns]
         return result.reset_index(drop=True)
 
+    # Ok
     def exclude(self,
                 other: typing.Union[list, pandas.Series, pandas.DataFrame, str],
                 exclusion_logic: typing.Union[dict, list, tuple, str],
                 ):
-        return self.c_merge(other, exclusion_logic, op="left_only", columns=self.dataset.columns)
+        return self.cmerge(other, exclusion_logic, op="left_only", columns=self.dataset.columns)
 
+    # Ok
     def intersect(self,
                   other: typing.Union[list, pandas.Series, pandas.DataFrame, str],
                   exclusion_logic: typing.Union[dict, list, tuple, str],
                   ):
-        return self.c_merge(other, exclusion_logic, op="both", columns=self.dataset.columns)
+        return self.cmerge(other, exclusion_logic, op="both", columns=self.dataset.columns)
 
+    # Ok
     @staticmethod
     def _check_delimiter(sample, check_in=None):
         if check_in is None:
@@ -223,8 +253,9 @@ class DatasetFactory:
             sep = None
         return sep
 
+    # Ok
     @classmethod
-    def from_file(cls, file_path, sep=None, drop_duplicates=False, drop_duplicates_on=None, columns=None,
+    def from_file(cls, file_path, sep=None, columns=None,
                   force_encoding=True, **kwargs):
 
         start_time = time.time()
@@ -233,8 +264,9 @@ class DatasetFactory:
         preserve = kwargs.pop("preserve", True)
         if "header" in kwargs and isinstance(kwargs["header"], bool):
             kwargs["header"] = None if not kwargs["header"] else "infer"
-
-        if isinstance(file_path, str):
+        if isinstance(file_path, cls):
+            dataset = file_path.dataset
+        elif isinstance(file_path, str):
             try:
                 is_hidden = bool(os.stat(file_path).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
             except AttributeError:
@@ -314,91 +346,209 @@ class DatasetFactory:
                                        **{k: v for k, v in kwargs.items() if k in ["index", "dtype"]})
 
         cls.LAST_FILE_LOADING_TIME = time.time() - start_time
-        dataset = _preserve_or_transform_columns(dataset, preserve=preserve,
-                                                 ignore_case=ignore_case)
 
         if tools.BasicTypes.is_iterable(columns):
             final_col = {}
-            dataset_columns = list(dataset.columns)
-            for ii, k in enumerate(columns):
+            dataset_columns = [tools.Var(col) for col in dataset.columns]
+            first = next(iter(columns))
+            without = False
+            if first is Ellipsis:
+                without = True
+                final_col = {k: k for k in dataset_columns}
+
+            for k in columns:
                 alias = None
+                if k is Ellipsis:
+                    continue
                 if isinstance(k, dict):
                     k, alias = next(iter(k.items()))
                 if k in dataset_columns:
-                    key = k
+                    key = cls.__parse_col(k, dataset_columns)
                     alias = columns[k] if isinstance(columns, dict) else alias or k
-                elif isinstance(k, str) and ii < len(dataset_columns):
-                    key = dataset_columns[ii]
+                elif isinstance(k, str):
+                    # à supprimer
+                    key = k
                     alias = columns[k] if isinstance(columns, dict) else alias or k
                 elif isinstance(k, int):
                     key = dataset_columns[k]
                     alias = columns[k] if isinstance(columns, dict) else alias or key
                 else:
                     raise ValueError("Bad column %s given" % k)
-                final_col[key] = alias
+                if without:
+                    final_col.pop(key)
+                else:
+                    final_col[key] = alias
             dataset = dataset.loc[:, final_col.keys()]
             dataset.rename(columns=final_col, inplace=True)
 
-        if drop_duplicates or kwargs.get("rd") or kwargs.get("dd"):
-            # rd -> remove duplicated, dd -> delete duplicated
-            if drop_duplicates_on is None:
-                drop_duplicates_on = kwargs.get("r_on") or kwargs.get("d_on")
-            if drop_duplicates_on is None:
-                drop_duplicates_on = dataset.columns
+        return cls(dataset, preserve=preserve, ignore_case=ignore_case)
+
+    @staticmethod
+    def _gen_columns_by_string(dataframe, op, alias=None):
+        """
+        op like col1 + col2 --> retrieve the dataframe with added column col1 + col2
+        """
+        if op in [tools.Var(d) for d in dataframe.columns]:
+            return dataframe
+        dataframe[alias or tools.format_var_name(op, permit_char="+-*/")] = DatasetFactory(dataframe).apply(op)
+        return dataframe
+
+    # Ok
+    def sql(self, query=None, *, select=None, group_by=None, where=None):
+        """
+        query: str like @select col1, col2 @where [condition] @group_by col1, col2
+        """
+        final_query = {}
+        if query is not None:
+            query, quoted_text_dict = tools.replace_quoted_text(query)
+            query = re.split(r"@(select|where|group_by)\s+(?P<select>[^@]+)", query, flags=re.I | re.S)
+            query = [query[i] for i in range(len(query)) if i % 3 != 0]
+
+            for i in range(len(query)):
+                if query[i].lower() in "select|where|group_by".split('|'):
+                    v = query[i + 1].strip()
+                    final_query[query[i].lower()] = v
+
+        select = select or final_query.get("select")
+        group_by = group_by or final_query.get("group_by")
+        where = where or final_query.get("where")
+        temp = self.dataset
+        if where:
+            where = where.strip()
+            if where:
+                temp = self.query(where)
+        final_select = select
+        if select:
+            if isinstance(select, str):
+                final_select = []
+                for s in select.split(","):
+                    s = s.strip()
+                    res = re.search(r"(avg|count|min|max|sum)\((.*?)\)(?:\s+(?:as\s+)?([^,]+))?", s, flags=re.I)
+                    if res:
+                        res = res.groups()
+                        col = self.__parse_default_col_name(res[1])
+                        func = res[0].strip()
+                        alias = res[2]
+                        if col == "*" and func not in ("count", "size"):
+                            raise ValueError("Bad value of select %s " % (s,))
+                        elif col == "*":
+                            func = "count"
+                            col = temp.columns[0]
+                        elif func in ("size", "count") and re.search(r"distinct\s+(\w+)", col, flags=re.I | re.S):
+                            col = self.__parse_default_col_name(
+                                re.search(r"distinct\s+(\w+)", col, flags=re.I | re.S).groups()[0])
+                            func = count_distinct
+                        final_select.append({"func": func, "on": col, "alias": alias})
+                    else:
+                        s = re.search(r"(\w+)(?:\s+as)?(?:\s+(.*))?", s, flags=re.I | re.S)
+                        final_select.append({"on": s[0], "alias": s[1]})
+
+        if group_by:
+            temp = self.group(group_by, temp, [d for d in final_select if isinstance(d, dict) and d.get("func")])
+        for d in final_select:
+            if "func" not in d:
+                temp = self._gen_columns_by_string(temp, d["on"], d.get("alias"))
+        return DatasetFactory(temp)
+
+    # Ok
+    @staticmethod
+    def group(group_by, dataset, aggregating_func=None):
+        """
+        aggregating_func like [{func: avg, on:field}]
+        """
+        if isinstance(group_by, str):
+            group_by = [DatasetFactory.__parse_col(d, dataset.columns) for d in group_by.split(",") if d.strip()]
+
+        group_by_elm = dataset.groupby(by=group_by)
+        _equivalence = {"avg": "mean", "count": "size"}
+        final_agg = {}
+        for d in aggregating_func or []:
+            func = _equivalence.get(d["func"]) or d["func"]
+            # d["func"] = func
+            alias = d.get("alias") or (d["func"] + f"({d['on']})" if isinstance(d["func"], str)
+                                       else d["func"].__name__ + f"({d['on']})")
+            final_agg[alias] = pandas.NamedAgg(column=d['on'], aggfunc=func)
+        if final_agg:
+            data = group_by_elm.agg(**final_agg)
+            """
+            aggregating_func = [tools.Cdict(d) for d in aggregating_func]
+            data = tools.concurrent_execution(lambda by: getattr(group_by_elm[by.on], by.func)(),
+                                              len(aggregating_func),
+                                              args=lambda index: (aggregating_func[index], index))
+            """
+            final_d = {}
+            index_rows = [d for d in data.index]
+            if len(group_by) > 1:
+                final_d.update({d: [row[c] for row in index_rows] for c, d in enumerate(group_by)})
             else:
-                drop_duplicates_on = ([drop_duplicates_on]
-                                      if isinstance(drop_duplicates_on, str)
-                                      else drop_duplicates_on)
-                drop_duplicates_on = [_parse_default_col_name(d, _preserve=preserve,
-                                                              _ignore_case=ignore_case,
-                                                              _columns=dataset.columns)
-                                      for d in drop_duplicates_on]
-                drop_duplicates_on = dataset.columns.intersection(drop_duplicates_on)
-            if drop_duplicates_on.shape[0]:
-                dataset.drop_duplicates(inplace=True,
-                                        subset=drop_duplicates_on, ignore_index=True)
-        return cls(dataset)
+                final_d[group_by[0]] = index_rows
+            for col in final_agg:
+                final_d[col] = data[col].values
 
-    def doublon(self, drop=False):
-        pass
+            data = pandas.DataFrame(final_d)
+        else:
+            data = group_by_elm.size()
+            index_rows = [d for d in data.index]
 
+            if len(group_by) > 1:
+                final_agg.update({d: [row[c] for row in index_rows] for c, d in enumerate(group_by)})
+            else:
+                final_agg[group_by[0]] = index_rows
+            final_agg["COUNT"] = data.values
+            data = pandas.DataFrame(final_agg)
+        return data
+
+    # Ok
     def __add__(self, other):
         if isinstance(other, self.__class__):
             other = other.dataset
-        if self._source.empty or (
-                len(self._source.columns) == len(other.columns) and all(self._source.columns == other.columns)):
-
-            return DatasetFactory(pandas.concat([self._source, other], ignore_index=True, sort=False),
+        if self.__source.empty or (
+                len(self.columns) == len(other.columns) and all(self.columns == other.columns)):
+            return DatasetFactory(pandas.concat([self.__source, other], ignore_index=True, sort=False),
                                   preserve=self._preserve,
-                                  ignore_case=self._ignore_case)
-        return self._source.__add__(other)
+                                  ignore_case=self.__ignore_case)
+        return self.__source.__add__(other)
 
     __radd__ = __add__
 
-    def query(self, query, *, method="parse", **kwargs):
+    # Ok
+    def query(self, query, params=None, *, method="parse", **kwargs):
         """
 
         """
         query = query.strip()
-        if not len(query) or self._source.empty:
-            return self._source
+        if not len(query) or self.__source.empty:
+            return self.__source
         if method in ("parse", 1):
             permit_funcs = []
-            params = QueryTransformer.PERMIT_FUNC
+            q_permit_funcs = QueryTransformer.PERMIT_FUNC
             for k, v in kwargs.items():
                 if callable(v):
                     permit_funcs.extend(str(k).lower())
-                    params[str(k).lower()] = v
-            hard, query = QueryTransformer(permit_funcs=permit_funcs, ignore_case=self._ignore_case
-                                           ).process(query)
+                    q_permit_funcs[str(k).lower()] = v
+
+            var_root_name = tools._get_new_kb_text(" ".join(self.__source.columns))
+
+            eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index))
+                      for index, col in enumerate(self.__source.columns)}
+            self.__source.rename(columns=eq_col, inplace=True)
+
+            hard, query, concerned_names = QueryTransformer(permit_funcs=permit_funcs).process(
+                query,
+                params=params,
+                columns=list(self.__source.columns))
+            # dataset.rename(columns={self.__parse_default_col_name(col): col for col in concerned_names}, inplace=True)
+            inplace = kwargs.pop("inplace", False)
             if hard:
-                res = tools.safe_eval_math(query, params=params, dataset=self._source, method="exec", **kwargs)
-                if kwargs.get("inplace"):
-                    self._source = res
-                    return
-                return res
+                res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source, method="exec", **kwargs)
             else:
-                return self._source.query(query, **kwargs)
+                res = self.__source.query(query, **kwargs)
+            res = res.rename(columns={v: k for k, v in eq_col.items()})
+            if inplace:
+                self.__source = res
+                return
+            self.__source.rename(columns={v: k for k, v in eq_col.items()}, inplace=True)
+            return res
         elif method in ("sql", 2):
 
             from kb_package.database.sqlitedb import SQLiteDB
@@ -407,30 +557,39 @@ class DatasetFactory:
 
             res = pandas.DataFrame(sql.run_script("select * from new_table where " + query, dict_res=True))
             if kwargs.get("inplace"):
-                self._source = res
+                self.__source = res
                 return
             return res
 
-    def apply(self, func, convert_dtype=True, *, args=(), **kwargs):
+    # Ok
+    def apply(self, func, convert_dtype=True, params=None, *, args=(), **kwargs):
         if not isinstance(func, str):
-            return self._source.apply(func, convert_dtype, args=args, **kwargs)
+            return self.__source.apply(func, convert_dtype, args=args, **kwargs)
         permit_funcs = ["pnn_ci"]
-        params = QueryTransformer.PERMIT_FUNC
+        q_permit_funcs = QueryTransformer.PERMIT_FUNC
         pnn_ci = numpy.vectorize(lambda f, plus="+", reseaux="ORANGE", permit_fix=False: tools.BasicTypes.pnn_ci(
             f, plus, permit_fixe=permit_fix, reseau=reseaux))
-        params["pnn_ci"] = pnn_ci
+        q_permit_funcs["pnn_ci"] = pnn_ci
         for k, v in kwargs.items():
             if callable(v):
                 permit_funcs.extend(str(k).lower())
-                params[str(k).lower()] = v
+                q_permit_funcs[str(k).lower()] = v
 
+        var_root_name = tools._get_new_kb_text(" ".join(self.__source.columns))
+
+        eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index))
+                  for index, col in enumerate(self.__source.columns)}
+        self.__source.rename(columns=eq_col, inplace=True)
+
+        res = QueryTransformer("serie", hard=True, permit_funcs=permit_funcs).process(
+            func,
+            _for="apply",
+            params=params)
+        query, concerned_names = res
         query = (
-            "\ndef apply(serie):\n"
-            "\tres = "
-        )
-        query += QueryTransformer("serie", hard=True, permit_funcs=permit_funcs,
-                                  ignore_case=self._ignore_case).process(func,
-                                                                         _for="apply")
+                    "\ndef apply(serie):\n"
+                    "\tres = "
+                ) + query
         query += (
             "\n"
             "\treturn "
@@ -440,8 +599,9 @@ class DatasetFactory:
         )
 
         Logger.info("Going to run", query)
-
-        return tools.safe_eval_math(query, params=params, dataset=self._source, method="exec", **kwargs)
+        res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source, method="exec", **kwargs)
+        self.__source.rename(columns={v: k for k, v in eq_col.items()}, inplace=True)
+        return res
 
     def sampling(self, d: str | int):
         """
@@ -473,7 +633,6 @@ class QueryTransformer(ast.NodeTransformer):
         self._custom_permit_func.extend(list(self.PERMIT_FUNC.keys()))
         self._hard = hard
         self._use_attr = False
-        self._ignore_case = ignore_case
         self.list_name = []
 
     def visit_Attribute(self, node):
@@ -483,8 +642,6 @@ class QueryTransformer(ast.NodeTransformer):
         # print("name", ast.dump(node, indent=2))
         if node.id.lower() not in ("null", "none"):
             self.list_name.append(node)
-            if self._ignore_case:
-                self._hard = True
         return node
 
     def visit_BoolOp(self, node):
@@ -577,11 +734,34 @@ class QueryTransformer(ast.NodeTransformer):
 
         return node
 
-    def process(self, node: str | ast.AST, verbose=False, _for="query"):
+    def process(self, node: str | ast.AST, verbose=False, _for="query", params=None, columns=None):
         if isinstance(node, str):
+            if columns is None:
+                columns = []
+            if isinstance(params, dict):
+                params = {k: repr(v) for k, v in params.items()}
+            elif isinstance(params, (list, tuple)):
+                params = tuple([repr(v) for v in params])
+            else:
+                params = None
+            if params is not None:
+                try:
+                    node = node % params
+                except (TypeError, Exception):
+                    raise ValueError("Bad value of params: %s  -- for the query: %s" % (params, repr(node)))
+
             query, quoted_text_dict = tools.replace_quoted_text(node)
             query = query.replace('\n', " ")
+
+            # check for variable @1 -> col1 of the dataset
+            def eq_col(match):
+                index = int(match.groups()[0][1:]) - 1
+
+                return columns[index]
+
+            query = re.sub(r"(@\d+)", eq_col, query)
             # replace = by ==
+
             query = re.sub(r"(?<![=><!])=(?![=])", "==", query, flags=re.I)
             # replace <> by !=
             query = query.replace("<>", "!=")
@@ -617,18 +797,18 @@ class QueryTransformer(ast.NodeTransformer):
         #
         list_name = self.list_name
         _hard = self._hard
+        concerned_names = [name.id for name in list_name]
         #
         if _hard:
             if self._use_attr:
                 raise NotImplementedError("Not permit to got attribute in this mode")
             for name in list_name:
                 if not name.id.startswith(self.PREFIX):
-                    if self._ignore_case:
-                        name.id = name.id.upper()
                     name.id = self.PREFIX + name.id
+
             res = ast.unparse(tree)
             if _for != "query":
-                return res
+                return res, concerned_names
             pycode = ""
             # with open(os.path.join(os.path.dirname(__file__), "_query_func.py")) as py:
             #    pycode = py.read()
@@ -644,13 +824,26 @@ class QueryTransformer(ast.NodeTransformer):
                 Logger.info("Got final script -->", old_query)
             pycode = old_query
         if _for != "query":
-            return old_query
+            return old_query, concerned_names
 
-        return _hard, pycode
+        return _hard, pycode, concerned_names
+
+
+def __test__():
+    columns = ["", "Col test", "kb_vars"]
+    temp = {"": range(100), "Col test": ["uuu" + str(x) for x in range(100)], "kb_vars": "test"}
+    temp = DatasetFactory(temp)
+    assert temp.query("(@1>10 and @2 like %s) or @1 in %s", params=(r"\w+9\d+", [2, 3, 4])).shape[0] == 13, \
+        "Error with the method query"
+    assert all([col == col_t for col, col_t in zip(temp.columns, columns)])
+    assert temp["col test"].shape[0] == 100
 
 
 if __name__ == '__main__':
-    p = DatasetFactory(r"C:\Users\FBYZ6263\Documents\OWN\kb_package\temp_test.csv")
-    apply = "TYPE_CLIENT_ENDPERIOD + TYPE_CLIENT_ENDPERIOD if length(MSISDN)= 13 else 0"
-    apply = "length(MSISDN)"
-    print(p.apply(apply))
+    def ttt(x, *args):
+        return "|".join(x)
+
+
+    d = DatasetFactory(r"C:\Users\FBYZ6263\Downloads\Pass KDO avec Avec zone.csv")
+    print(d.sql(group_by=["DEPARTEMENT", "COMMUNE"]))
+    d.sql(group_by=["DEPARTEMENT", "COMMUNE"]).save("base_pass_kdo_par_zone.csv")
