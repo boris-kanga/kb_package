@@ -368,7 +368,7 @@ class BaseDB(abc.ABC):
         qquery = query.split("\n")
         for line in qquery:
             line = re.split(sigle_line_symbole, line, maxsplit=1)
-            final_script += line[0]
+            final_script += "\n" + line[0]
             comments_list.extend(line[1:])
         for k in r:
             final_script = final_script.replace(k, r[k])
@@ -486,12 +486,26 @@ class BaseDB(abc.ABC):
 
     @staticmethod
     def _get_sql_type(script):
-        res = re.search(r"^(delete|select|insert|update|with|merge|create|replace|alter"
+        res = re.search(r"^(?:[(\s]*)?(delete|select|insert|update|with|merge|create|replace|alter"
                         r"|commit|truncate|call|rename|[a-z]+)",
                         script.strip(), flags=re.I)
         if res:
             return res.groups()[0]
         return "unknown"
+
+    def __test__(self, script, params):
+        if isinstance(script, str):
+            try:
+                assert os.path.exists(script)
+                with open(script) as file:
+                    script = file.read().strip()
+            except (AssertionError, OSError, Exception):
+                pass
+            script = self._script_tokenizer(script)
+        for s in script:
+            s, consider_params, _type, nb_var = self._prepare_query(s, params)
+
+            print(s, consider_params)
 
     def run_script(self, script: typing.Union[list, str], params=None, retrieve=None, limit=INFINITE,
                    ignore_error=False, dict_res=False):
@@ -552,7 +566,7 @@ class BaseDB(abc.ABC):
 
         self.commit()
         if retrieve is None:
-            retrieve = self._get_sql_type(script[0]).lower() in ("with", "select")
+            retrieve = self._get_sql_type(script[-1]).lower() in ("with", "select")
         if retrieve:
             data = self.get_all_data_from_cursor(cursor, limit=limit, dict_res=dict_res)
             if dict_res:
@@ -590,6 +604,7 @@ class BaseDB(abc.ABC):
             return
         if not isinstance(ftype, dict):
             ftype = {}
+        ftype = tools.Cdict(ftype)
         if columns is not None:
             if isinstance(columns, list):
                 dataset = dataset.loc[:, columns]
@@ -612,7 +627,7 @@ class BaseDB(abc.ABC):
             equivalent[col] = field
             if index > 0:
                 table_script += ","
-            print(is_integer_dtype(dataset[col]), dataset[col])
+            # print(is_integer_dtype(dataset[col]), dataset[col])
             if is_integer_dtype(dataset[col]) and (
                     is_integer_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
                 table_script += f"\n\t{field} int"
@@ -629,7 +644,7 @@ class BaseDB(abc.ABC):
                         "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
                 ):
                     dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
-                    size = [len(str(x)) if x else 0 for x in dataset[col][:100]]
+                    size = [len(str(x)) if x else 0 for x in dataset[col]]
                     if max(size) == min(size):
                         size = max(size)
                         if size == 0:
