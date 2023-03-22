@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import abc
-import json
-from datetime import datetime as DateTime, date as Date
 import re
 import traceback
 import typing
@@ -709,4 +707,4 @@ class BaseDB(abc.ABC):
 
 
 def for_csv(row, sep=";"):
-    return sep.join([str(d) for d in row])
+    return sep.join(["" if pandas.isnull(d) else str(d) for d in row])
