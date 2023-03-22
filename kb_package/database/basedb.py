@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import abc
+import json
+from datetime import datetime as DateTime, date as Date
 import re
 import traceback
 import typing
@@ -301,7 +303,7 @@ class BaseDB(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
         return []
 
     @staticmethod
@@ -508,7 +510,7 @@ class BaseDB(abc.ABC):
             print(s, consider_params)
 
     def run_script(self, script: typing.Union[list, str], params=None, retrieve=None, limit=INFINITE,
-                   ignore_error=False, dict_res=False):
+                   ignore_error=False, dict_res=False, export=False, export_name=None, sep=";"):
         """
         Run a specific sql file
         Args:
@@ -518,6 +520,9 @@ class BaseDB(abc.ABC):
             limit: int nb of data to retrieve if retrieve
             ignore_error: to ignore or raise error if an error happened
             dict_res: bool, return result as dict args
+            export: bool, if it's necessary to export te data
+            export_name: (str) the file name
+            sep: csv separator for export
 
         Returns: data results if retrieve
 
@@ -565,10 +570,21 @@ class BaseDB(abc.ABC):
             return
 
         self.commit()
+        if export:
+            if export_name is None:
+                export_name = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Downloads')
+                if not os.path.exists(export_name):
+                    export_name = os.path.dirname(__file__)
+                export_name = os.path.join(export_name, "export_data.csv")
+                export_name = tools.get_no_filepath(export_name)
+
         if retrieve is None:
             retrieve = self._get_sql_type(script[-1]).lower() in ("with", "select")
         if retrieve:
-            data = self.get_all_data_from_cursor(cursor, limit=limit, dict_res=dict_res)
+            data = self.get_all_data_from_cursor(cursor, limit=limit, dict_res=dict_res,
+                                                 export_name=export_name, sep=sep)
+            if export_name is not None:
+                return export_name
             if dict_res:
                 if limit == 1:
                     return tools.Cdict(data)
@@ -690,3 +706,7 @@ class BaseDB(abc.ABC):
 
     def dump(self, dump_file='dump.sql'):
         pass
+
+
+def for_csv(row, sep=";"):
+    return sep.join([str(d) for d in row])

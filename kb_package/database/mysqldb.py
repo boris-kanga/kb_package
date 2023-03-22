@@ -11,7 +11,7 @@ import traceback
 
 import mysql.connector
 from kb_package.tools import INFINITE
-from kb_package.database.basedb import BaseDB
+from kb_package.database.basedb import BaseDB, for_csv
 
 
 class MysqlDB(BaseDB):
@@ -98,20 +98,31 @@ class MysqlDB(BaseDB):
         return str(field_name or "id") + " MEDIUMINT PRIMARY KEY AUTOINCREMENT"
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
         if not cursor.with_rows:
             return None
         MysqlDB.LAST_REQUEST_COLUMNS = cursor.column_names
 
         data = []
         try:
-            while len(data) < limit:
-                row = cursor.fetchone()
-                if not row:
-                    break
-                if dict_res:
-                    row = dict(zip(cursor.column_names, row))
-                data.append(row)
+            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
+            if export_name is not None:
+                export_file = open(export_name, "w")
+            with export_file:
+                if export_name is not None:
+                    export_file.write(for_csv(cursor.column_names, sep=sep) + "\n")
+                while len(data) < limit:
+                    row = cursor.fetchone()
+                    if not row:
+                        break
+                    if dict_res and export_name is None:
+                        row = dict(zip(cursor.column_names, row))
+                    if export_name is not None:
+                        export_file.write(for_csv(row, sep=sep) + "\n")
+                    else:
+                        data.append(row)
+            if export_name is not None:
+                return
         except (Exception, mysql.connector.errors.ProgrammingError):
             pass
         if limit == 1:

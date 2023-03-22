@@ -8,7 +8,7 @@ Required psycopg2~=2.9.3
 
 import psycopg2
 from kb_package.tools import INFINITE
-from kb_package.database.basedb import BaseDB
+from kb_package.database.basedb import BaseDB, for_csv
 
 
 class PostgresDB(BaseDB):
@@ -53,15 +53,27 @@ class PostgresDB(BaseDB):
         return self.db_object.cursor()
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
-
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
+        columns = [desc[0] for desc in cursor.description or []]
         data = []
         try:
             row = cursor.fetchone()
-
-            while row is not None and len(data) < limit:
-                data.append(row)
-                row = cursor.fetchone()
+            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
+            if export_name is not None:
+                export_file = open(export_name, "w")
+            with export_file:
+                if export_name is not None:
+                    export_file.write(for_csv(columns, sep=sep) + "\n")
+                while row is not None and len(data) < limit:
+                    if export_name is not None:
+                        export_file.write(for_csv(row, sep=sep) + "\n")
+                    else:
+                        if dict_res:
+                            row = dict(zip(columns, row))
+                        data.append(row)
+                    row = cursor.fetchone()
+            if export_name is not None:
+                return
         except (Exception, psycopg2.DatabaseError):
             pass
         if limit == 1:

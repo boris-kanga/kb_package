@@ -11,7 +11,7 @@ import os
 
 import cx_Oracle
 
-from kb_package.database.basedb import BaseDB
+from kb_package.database.basedb import BaseDB, for_csv
 from kb_package.tools import INFINITE
 import traceback
 
@@ -58,22 +58,32 @@ class OracleDB(BaseDB):
         return [":" + str(d) for d in data.keys()], data
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
         columns = [col[0] for col in cursor.description or []]
         OracleDB.LAST_REQUEST_COLUMNS = columns
-        if dict_res:
+        if dict_res and export_name is None:
             cursor.rowfactory = lambda *args: dict(zip(columns, args))
 
         data = []
         try:
-            while len(data) < limit:
-
-                row = cursor.fetchone()
-                if not row:
-                    break
-                data.append(row)
+            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
+            if export_name is not None:
+                export_file = open(export_name, "w")
+            with export_file:
+                if export_name is not None:
+                    export_file.write(for_csv(columns, sep=sep) + "\n")
+                while len(data) < limit:
+                    row = cursor.fetchone()
+                    if not row:
+                        break
+                    if export_name is not None:
+                        export_file.write(for_csv(row, sep=sep) + "\n")
+                    else:
+                        data.append(row)
+            if export_name is not None:
+                return
         except (Exception, cx_Oracle.Error):
-            traceback.print_exc()
+            pass
         if limit == 1:
             if len(data):
                 return data[0]

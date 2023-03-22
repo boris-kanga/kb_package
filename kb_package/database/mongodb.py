@@ -12,7 +12,7 @@ import traceback
 import pymongo
 
 from kb_package.database.where_clause import WhereClause
-from kb_package.database.basedb import BaseDB
+from kb_package.database.basedb import BaseDB, for_csv
 from kb_package.tools import INFINITE
 from kb_package import tools
 
@@ -73,8 +73,8 @@ class MongoDB(BaseDB):
         return self.db_object[self.database_name]
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False):
-
+    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=True, export_name=None, sep=";"):
+        # dict_res arg mongo db
         data = []
         try:
             data = list(cursor)
@@ -82,6 +82,13 @@ class MongoDB(BaseDB):
                 pass
             else:
                 data = data[:limit]
+            if export_name is not None and data:
+                with open(export_name, "w") as export_file:
+                    if export_name is not None:
+                        export_file.write(for_csv(data[0].keys(), sep=sep) + "\n")
+                    for row in data:
+                        export_file.write(for_csv(row, sep=sep) + "\n")
+                    return
         except (Exception, pymongo.cursor.RawBatchCursor):
             pass
         if limit == 1:
