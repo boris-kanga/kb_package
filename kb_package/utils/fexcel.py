@@ -187,7 +187,7 @@ class ExcelFactory:
             return
 
         if sheet is None:
-            sheet = self._workbook.active
+            _, sheet = self._get_ref_sheet_from(table_name)
         elif not isinstance(sheet, Worksheet):
             sheet = self.sheet(sheet)
         table: Table = sheet.tables[table_name]
