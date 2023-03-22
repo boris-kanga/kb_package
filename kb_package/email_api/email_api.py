@@ -126,7 +126,7 @@ class EmailAPI:
                     encoders.encode_base64(part)
                     part.add_header(
                         "Content-Disposition",
-                        "attachment; filename={}".format(name),
+                        "attachment", filename=name
                     )
                     message.attach(part)
             except (FileNotFoundError, OSError, Exception):
