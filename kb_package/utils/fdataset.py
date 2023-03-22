@@ -357,6 +357,7 @@ class DatasetFactory:
                 final_col = {k: k for k in dataset_columns}
 
             for k in columns:
+                got_k = k
                 alias = None
                 if k is Ellipsis:
                     continue
@@ -374,7 +375,7 @@ class DatasetFactory:
                     alias = columns[k] if isinstance(columns, dict) else alias or key
                 else:
                     raise ValueError("Bad column %s given" % k)
-                if without:
+                if without and not isinstance(got_k, dict):
                     final_col.pop(key)
                 else:
                     final_col[key] = alias
