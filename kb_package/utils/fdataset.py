@@ -287,6 +287,8 @@ class DatasetFactory:
                 }
                 if "encoding" not in kwargs:
                     kwargs_["encoding"] = "utf-8"
+                else:
+                    kwargs_["encoding"] = kwargs["encoding"]
                 used_sniffer = False
                 try:
                     if sep is None:
@@ -305,8 +307,9 @@ class DatasetFactory:
                 except UnicodeDecodeError as exc:
                     if not force_encoding:
                         raise exc
+                    min_buffer = int(re.search(r"position (\d+):", str(exc)).groups()[0]) + 100
                     with open(file_path, "rb") as file_from_file_path:
-                        file_bytes = file_from_file_path.read()
+                        file_bytes = file_from_file_path.read(min_buffer)
                         encoding_proba = chardet.detect(file_bytes).get("encoding", "latin1")
                     if kwargs_["encoding"] != encoding_proba:
                         Logger.warning("We force encoding to:", encoding_proba)
@@ -513,7 +516,7 @@ class DatasetFactory:
     __radd__ = __add__
 
     # Ok
-    def query(self, query, params=None, *, method="parse", **kwargs):
+    def query(self, query, params=None, *, method="parse", reset=False, **kwargs):
         """
 
         """
@@ -530,26 +533,33 @@ class DatasetFactory:
 
             var_root_name = tools._get_new_kb_text(" ".join(self.__source.columns))
 
-            eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index))
+            eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index)).lower()
                       for index, col in enumerate(self.__source.columns)}
-            self.__source.rename(columns=eq_col, inplace=True)
-
-            hard, query, concerned_names = QueryTransformer(permit_funcs=permit_funcs).process(
-                query,
-                params=params,
-                columns=list(self.__source.columns))
-            # dataset.rename(columns={self.__parse_default_col_name(col): col for col in concerned_names}, inplace=True)
             inplace = kwargs.pop("inplace", False)
-            if hard:
-                res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source, method="exec", **kwargs)
-            else:
-                res = self.__source.query(query, **kwargs)
-            res = res.rename(columns={v: k for k, v in eq_col.items()})
-            if inplace:
-                self.__source = res
-                return
-            self.__source.rename(columns={v: k for k, v in eq_col.items()}, inplace=True)
-            return res
+            try:
+                self.__source.rename(columns=eq_col, inplace=True)
+
+                hard, query, concerned_names = QueryTransformer(permit_funcs=permit_funcs).process(
+                    query,
+                    params=params,
+                    columns=list(self.__source.columns))
+                # dataset.rename(columns={self.__parse_default_col_name(col): col for col in concerned_names},
+                # inplace=True)
+                if hard:
+                    res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source, method="exec", **kwargs)
+                else:
+                    res = self.__source.query(query, **kwargs)
+                res = res.rename(columns={v: k for k, v in eq_col.items()})
+                if reset:
+                    res = res.reset_index(drop=True)
+                if inplace:
+                    self.__source = res
+                    return
+
+                return res
+            finally:
+                if not inplace:
+                    self.__source.rename(columns={v: k for k, v in eq_col.items()}, inplace=True)
         elif method in ("sql", 2):
 
             from kb_package.database.sqlitedb import SQLiteDB
@@ -578,31 +588,33 @@ class DatasetFactory:
 
         var_root_name = tools._get_new_kb_text(" ".join(self.__source.columns))
 
-        eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index))
+        eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index)).lower()
                   for index, col in enumerate(self.__source.columns)}
-        self.__source.rename(columns=eq_col, inplace=True)
+        try:
+            self.__source.rename(columns=eq_col, inplace=True)
 
-        res = QueryTransformer("serie", hard=True, permit_funcs=permit_funcs).process(
-            func,
-            _for="apply",
-            params=params)
-        query, concerned_names = res
-        query = (
-                    "\ndef apply(serie):\n"
-                    "\tres = "
-                ) + query
-        query += (
-            "\n"
-            "\treturn "
-            "res.item() if hasattr(res, 'ndim') and "
-            "res.ndim==0 else res\n"
-            "result = dataset.apply(apply, axis=1) \n"
-        )
+            res = QueryTransformer("serie", hard=True, permit_funcs=permit_funcs).process(
+                func,
+                _for="apply",
+                params=params)
+            query, concerned_names = res
+            query = (
+                        "\ndef apply(serie):\n"
+                        "\tres = "
+                    ) + query
+            query += (
+                "\n"
+                "\treturn "
+                "res.item() if hasattr(res, 'ndim') and "
+                "res.ndim==0 else res\n"
+                "result = dataset.apply(apply, axis=1) \n"
+            )
 
-        Logger.info("Going to run", query)
-        res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source, method="exec", **kwargs)
-        self.__source.rename(columns={v: k for k, v in eq_col.items()}, inplace=True)
-        return res
+            Logger.info("Going to run", query)
+            res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source, method="exec", **kwargs)
+            return res
+        finally:
+            self.__source.rename(columns={v: k for k, v in eq_col.items()}, inplace=True)
 
     def sampling(self, d: str | int):
         """
@@ -642,6 +654,7 @@ class QueryTransformer(ast.NodeTransformer):
     def visit_Name(self, node):
         # print("name", ast.dump(node, indent=2))
         if node.id.lower() not in ("null", "none"):
+            node.id = node.id.lower()
             self.list_name.append(node)
         return node
 
