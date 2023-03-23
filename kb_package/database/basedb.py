@@ -308,7 +308,8 @@ class BaseDB(abc.ABC):
     def _script_tokenizer(sql):
         # prepare sql code
         sql = BaseDB._uncomment_sql(sql, sigle_line_symbole="--")
-        sql_without_quote, quotes_ref = tools.replace_quoted_text(sql, quotes="'")
+
+        sql_without_quote, quotes_ref = tools.replace_quoted_text(sql)
         sql_without_quote = sql_without_quote.strip()
         if not sql_without_quote.endswith(";"):
             sql_without_quote += ";"
@@ -319,17 +320,16 @@ class BaseDB(abc.ABC):
         script_without_package, package_ref = tools.extract_structure(
             sql_without_quote,
             symbol_start=r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?PACKAGE\s+BODY\s+(?:\w+.)(\w+)\s+(?:IS|AS)",
-            symbol_end="^\\s*END\\s+\1\\s*;(?:^\\s*/)?",
+            symbol_end=";\\s*^\\s*END\\s+\1\\s*;(?:^\\s*/)?",
             maximum_deep=1, flags=re.S | re.I | re.M, sep=";"
         )
         script, proc_refs = tools.extract_structure(
             script_without_package,
-            symbol_start=r"^\s*(?:PROCEDURE\s.+?|DECLARE.+?|"
+            symbol_start=r"^\s*(?:(?:PROCEDURE\s.+?|DECLARE.+?|"
                          r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE|TRIGGER)\s.+?)"
-                         r"^\s*BEGIN",
-            symbol_end=r"^\s*END\s*;(?:\s*/)?",
+                         r"^\s*BEGIN|BEGIN)",
+            symbol_end=r";\s*^\s*END\s*;(?:\s*/)?",
             maximum_deep=1, flags=re.S | re.I | re.M, sep=";")
-
         queries = []
         for query in script.split(";"):
             # recalculation
@@ -493,7 +493,8 @@ class BaseDB(abc.ABC):
             return res.groups()[0]
         return "unknown"
 
-    def __test__(self, script, params):
+    @staticmethod
+    def __test__(script, params=None):
         if isinstance(script, str):
             try:
                 assert os.path.exists(script)
@@ -501,11 +502,10 @@ class BaseDB(abc.ABC):
                     script = file.read().strip()
             except (AssertionError, OSError, Exception):
                 pass
-            script = self._script_tokenizer(script)
+            script = BaseDB._script_tokenizer(script)
         for s in script:
-            s, consider_params, _type, nb_var = self._prepare_query(s, params)
+            s, consider_params, _type, nb_var = BaseDB._prepare_query(s, params)
 
-            print(s, consider_params)
 
     def run_script(self, script: typing.Union[list, str], params=None, retrieve=None, limit=INFINITE,
                    ignore_error=False, dict_res=False, export=False, export_name=None, sep=";"):
