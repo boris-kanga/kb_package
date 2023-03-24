@@ -506,6 +506,7 @@ class CustomDateTime:
             ]
             args = {key: 0 for key in keys}
             match = {k[:-1]: k for k in keys}
+            match.update({"min": "minutes", "sec": "seconds", "microsec": "microseconds"})
             for arg in values:
                 op, value, item = arg
                 if op is None:
