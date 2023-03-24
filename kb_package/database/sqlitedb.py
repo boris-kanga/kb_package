@@ -99,7 +99,7 @@ class SQLiteDB(BaseDB):
             getattr(cursor, method)(*args)
             return cursor
         except Exception as ex:
-            print(params, script)
+            # print(params, script)
             if ignore_error:
                 return None
             raise Exception(ex)

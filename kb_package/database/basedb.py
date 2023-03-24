@@ -596,7 +596,7 @@ class BaseDB(abc.ABC):
     def create_table(self, arg: str | pandas.DataFrame | DatasetFactory, table_name=None, if_not_exists=True,
                      auto_increment_field=False,
                      auto_increment_field_name=None,
-                     columns=None, ftype=None, verbose=True, **kwargs):
+                     columns=None, ftype=None, verbose=True, only_structure=False, **kwargs):
         if verbose:
             print = self._print_info
         else:
@@ -666,7 +666,7 @@ class BaseDB(abc.ABC):
                     else:
                         size = max(size)
                     if size > 255:
-                        type_ = 'text'
+                        type_ = 'clob' if "oracle" in self._get_name.lower() else "text"
                     else:
                         if size > 3:
                             size = max(255, size)
@@ -700,6 +700,8 @@ class BaseDB(abc.ABC):
 
         # dataset.to_sql(con=self.db_object)
         # INSERTING DATASET
+        if only_structure:
+            return
         self.insert_many(dataset, table_name=table_name, loader=kwargs.get("loader"))
 
     def dump(self, dump_file='dump.sql'):

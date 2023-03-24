@@ -13,7 +13,6 @@ import cx_Oracle
 
 from kb_package.database.basedb import BaseDB, for_csv
 from kb_package.tools import INFINITE
-import traceback
 
 
 class OracleDB(BaseDB):
