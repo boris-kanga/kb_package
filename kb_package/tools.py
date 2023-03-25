@@ -432,39 +432,60 @@ class CustomFileOpen:
 class Cdict(dict):
     NO_CAST_CONSIDER = True
 
-    def __init__(self, data: Union[dict, list, tuple, str] = None, keys: Union[list, tuple, str] = None, **kwargs):
-        self._file_name = None
-        if isinstance(data, str):
+    def __new__(cls, data: Union[dict, list, tuple, str] = None,
+                keys: Union[list, tuple, str] = None,
+                **kwargs):
+        __no_parse_string = kwargs.get("_Cdict__no_parse_string", False)
+        if isinstance(data, str) and not __no_parse_string:
             got = False
             try:
                 if os.path.exists(data):
-                    self._file_name = data
                     data = read_json_file(data, {})
                     got = True
             except (FileNotFoundError, FileExistsError, Exception):
                 pass
             if not got:
                 data = json.loads(data)
+            if isinstance(data, list):
+                return [cls(d, _Cdict__no_parse_string=True) for d in data]
+            else:
+                return cls(data, keys, **kwargs)
+        elif isinstance(data, str):
+            return data
+        elif isinstance(data, (int, float)):
+            return data
+        if isinstance(data, (list, tuple)):
+            return type(data)([cls(d, _Cdict__no_parse_string=True) for d in data])
+        return dict.__new__(cls)
+
+    def __init__(self, data: Union[dict, list, tuple, str] = None,
+                 keys: Union[list, tuple, str] = None,
+                 **kwargs):
+        kwargs.pop("_Cdict__no_parse_string", None)
+        self.__file_name = None
         if isinstance(data, dict):
             data.update(kwargs)
-        elif isinstance(data, (list, tuple)):
-            keys = list(keys or range(len(data)))
-            data = {k: dd for k, dd in zip(keys, data)}
         else:
             data = kwargs
 
         for k in data:
-            if isinstance(data[k], dict):
-                data[k] = Cdict(data[k])
+            data[k] = Cdict(data[k], _Cdict__no_parse_string=True)
+            # if isinstance(data[k], dict):
+            #    data[k] = Cdict(data[k])
 
         super().__init__(data)
-        if self.NO_CAST_CONSIDER:
-            self.key_eq = {str(k).lower(): k for k in self.keys()}
-        else:
-            self.key_eq = {k: k for k in self.keys()}
+
+    def __parse_item(self, item):
+        for i in self.keys():
+            if self.NO_CAST_CONSIDER:
+                if Var(i) == item:
+                    return i
+            elif i == item:
+                return i
+        return item
 
     def to_json(self, file_path=None, indent=4):
-        self._to_json(self, file_path or self._file_name, indent=indent)
+        self._to_json(self, file_path or self.__file_name, indent=indent)
 
     @staticmethod
     def _to_json(json_data, file_path, indent=4):
@@ -473,15 +494,15 @@ class Cdict(dict):
             file.write(res)
 
     def get(self, item, default=None):
-        key = self.key_eq.get(str(item).lower()) or item
+        key = self.__parse_item(item)
         return super().get(key, default)
 
     def __getitem__(self, item):
-        key = self.key_eq.get(str(item).lower()) or item
+        key = self.__parse_item(item)
         return super().__getitem__(key)
 
     def __getattr__(self, item, *args):
-        key = self.key_eq.get(str(item).lower()) or item
+        key = self.__parse_item(item)
         try:
             return super().__getitem__(key)
         except KeyError:
@@ -492,33 +513,27 @@ class Cdict(dict):
             raise AttributeError("This attribute %s don't exists for this instance" % item)
 
     def pop(self, k, *args):
-        if self.NO_CAST_CONSIDER:
-            k = self.key_eq.pop(str(k).lower())
+        k = self.__parse_item(k)
         return super().pop(k, *args)
 
-    def update(self, other: dict = None, **kwargs):
-        other.update(kwargs)
-        if self.NO_CAST_CONSIDER:
-            temp = {str(k).lower(): k for k in other.keys()}
-            keys = set([str(k).lower() for k in other.keys()]).difference(self.key_eq.keys())
-            self.key_eq.update({kk: k for kk, k in temp.items() if kk in keys})
-        super().update(other)
-
     def __contains__(self, item):
-        return self.key_eq.__contains__(str(item).lower()) or super().__contains__(item)
+        return item in [Var(k) if self.NO_CAST_CONSIDER else k for k in self.keys()] or super().__contains__(item)
 
-    def __delitem__(self, k):  # real signature unknown
+    def __delitem__(self, k):
         """ Delete self[key]. """
-        if self.NO_CAST_CONSIDER:
-            k = self.key_eq.pop(str(k).lower())
+        k = self.__parse_item(k)
         super().__delitem__(k)
 
-    def __setitem__(self, k, v):  # real signature unknown
+    def __setitem__(self, k, v):
         """ Set self[key] to value. """
-        if self.NO_CAST_CONSIDER:
-            if k not in self:
-                self.key_eq[str(k).lower()] = k
+        k = self.__parse_item(k)
         super().__setitem__(k, v)
+
+    def __setattr__(self, key, value):
+        if key in ["_Cdict" + c for c in ["__file_name"]]:
+            super().__setattr__(key, value)
+            return
+        self.__setitem__(key, value)
 
 
 class CModality:
