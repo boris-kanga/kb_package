@@ -36,24 +36,23 @@ def count_distinct(s):
 
 class DatasetFactory:
     LAST_FILE_LOADING_TIME = 0
-    IGNORE_CASE = True
 
-    def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict] = None, ignore_case=None,
-                 preserve=False, dd=False, drop_on=None, **kwargs):
+    is_null = pandas.isnull
+
+    def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict] = None,
+                 dd=False, drop_on=None, **kwargs):
         # cls = self.__class__
         # cls.from_file.__code__.co_varnames
         self.__path = None
-        self.__ignore_case = self.IGNORE_CASE if ignore_case is None else ignore_case
         if isinstance(dataset, str):
             self.__path = dataset
         if dataset is None:
             self.__source = pandas.DataFrame()
         elif not isinstance(dataset, pandas.DataFrame) or (hasattr(dataset, "readable") and dataset.readable()):
-            self.__source = self.from_file(dataset, **kwargs, ignore_case=self.__ignore_case, preserve=preserve).dataset
+            self.__source = self.from_file(dataset, **kwargs).dataset
         else:
             self.__source = dataset
         self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
-        self._preserve = preserve
 
         if dd or kwargs.get("drop_duplicates") or kwargs.get("rd"):
             if drop_on is None:
@@ -70,6 +69,28 @@ class DatasetFactory:
 
     # Ok
     def __parse_default_col_name(self, col):
+        if isinstance(col, slice):
+            start = None
+            stop = None
+            if col.start is not None:
+                start = self.__parse_col(col.start, self.columns)
+            if col.stop is not None:
+                stop = self.__parse_col(col.stop, self.columns)
+
+            return slice(start, stop, col.step)
+        elif isinstance(col, tuple):
+            cols = []
+            for s in col:
+                if isinstance(s, slice):
+                    start = None
+                    stop = None
+                    if s.start is not None:
+                        start = self.__parse_col(s.start, self.columns)
+                    if s.stop is not None:
+                        stop = self.__parse_col(s.stop, self.columns)
+                    s = slice(start, stop, s.step)
+                cols.append(s)
+            return tuple(cols)
         return self.__parse_col(col, self.columns)
 
     # Ok
@@ -105,6 +126,8 @@ class DatasetFactory:
     # Ok
     def __getitem__(self, item):
         item = self.__parse_default_col_name(item)
+        if isinstance(item, (tuple, slice)):
+            return self.__source.loc[item]
         return self.__source.__getitem__(item)
 
     # Ok
@@ -125,8 +148,8 @@ class DatasetFactory:
 
     # Ok
     def __setattr__(self, key, value):
-        if (key in ["_DatasetFactory" + pp for pp in ["__source", "__path", "__ignore_case"]] or
-                key in ("columns", "_preserve")):
+        if (key in ["_DatasetFactory" + pp for pp in ["__source", "__path"]] or
+                key in ("columns", )):
             super().__setattr__(key, value)
             return
         key = self.__parse_default_col_name(key)
@@ -260,8 +283,6 @@ class DatasetFactory:
 
         start_time = time.time()
         delimiters = kwargs.pop("delimiters", [',', '\t', ';', ' ', ':'])
-        ignore_case = kwargs.pop("ignore_case", False)
-        preserve = kwargs.pop("preserve", True)
         if "header" in kwargs and isinstance(kwargs["header"], bool):
             kwargs["header"] = None if not kwargs["header"] else "infer"
         if isinstance(file_path, cls):
@@ -339,7 +360,7 @@ class DatasetFactory:
                     pass
             else:
                 kk["delimiter"] = sep
-            dataset = csv.DictReader(file_path, **kk)
+            dataset = pandas.DataFrame(csv.DictReader(file_path, **kk))
         else:
             col_arg = columns
             if isinstance(columns, list):
@@ -385,7 +406,7 @@ class DatasetFactory:
             dataset = dataset.loc[:, final_col.keys()]
             dataset.rename(columns=final_col, inplace=True)
 
-        return cls(dataset, preserve=preserve, ignore_case=ignore_case)
+        return cls(dataset)
 
     @staticmethod
     def _gen_columns_by_string(dataframe, op, alias=None):
@@ -508,9 +529,7 @@ class DatasetFactory:
             other = other.dataset
         if self.__source.empty or (
                 len(self.columns) == len(other.columns) and all(self.columns == other.columns)):
-            return DatasetFactory(pandas.concat([self.__source, other], ignore_index=True, sort=False),
-                                  preserve=self._preserve,
-                                  ignore_case=self.__ignore_case)
+            return DatasetFactory(pandas.concat([self.__source, other], ignore_index=True, sort=False))
         return self.__source.__add__(other)
 
     __radd__ = __add__
@@ -546,7 +565,8 @@ class DatasetFactory:
                 # dataset.rename(columns={self.__parse_default_col_name(col): col for col in concerned_names},
                 # inplace=True)
                 if hard:
-                    res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source, method="exec", **kwargs)
+                    res = tools.safe_eval_math(query, params=q_permit_funcs, dataset=self.__source,
+                                               method="exec", **kwargs)
                 else:
                     res = self.__source.query(query, **kwargs)
                 res = res.rename(columns={v: k for k, v in eq_col.items()})
@@ -573,7 +593,7 @@ class DatasetFactory:
             return res
 
     # Ok
-    def apply(self, func, convert_dtype=True, params=None, *, args=(), **kwargs):
+    def apply(self, func, convert_dtype=True, *, params=None, args=(), **kwargs):
         if not isinstance(func, str):
             return self.__source.apply(func, convert_dtype, args=args, **kwargs)
         permit_funcs = ["pnn_ci"]
@@ -634,7 +654,7 @@ class QueryTransformer(ast.NodeTransformer):
                     isinstance(m, numpy.vectorize))))
     }
 
-    def __init__(self, *args, hard=False, permit_funcs=None, ignore_case=True):
+    def __init__(self, *args, hard=False, permit_funcs=None):
         super().__init__()
         if len(args):
             self.PREFIX = args[0]
