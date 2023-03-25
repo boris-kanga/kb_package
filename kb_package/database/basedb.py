@@ -56,12 +56,12 @@ class BaseDB(abc.ABC):
             if res:
                 self.file_name = ":memory:"
                 _, self.username, self.password, self.host, \
-                    self.port, self.database_name = res.groups()
+                self.port, self.database_name = res.groups()
 
             else:
                 self.file_name = uri
                 self.username, self.password, self.host, \
-                    self.port, self.database_name = None, None, None, None, None
+                self.port, self.database_name = None, None, None, None, None
             uri = {}
 
         self._kwargs = uri
@@ -506,9 +506,8 @@ class BaseDB(abc.ABC):
         for s in script:
             s, consider_params, _type, nb_var = BaseDB._prepare_query(s, params)
 
-
-    def run_script(self, script: typing.Union[list, str], params=None, retrieve=None, limit=INFINITE,
-                   ignore_error=False, dict_res=False, export=False, export_name=None, sep=";"):
+    def run_script(self, script: typing.Union[list, str], params=None, *, retrieve=None, limit=INFINITE,
+                   ignore_error=False, dict_res=False, export=False, export_name=None, sep=";", timeout=None):
         """
         Run a specific sql file
         Args:
@@ -521,10 +520,28 @@ class BaseDB(abc.ABC):
             export: bool, if it's necessary to export te data
             export_name: (str) the file name
             sep: csv separator for export
+            timeout: float, nb of seconds for maximum time of execution
 
         Returns: data results if retrieve
 
         """
+        if timeout is not None and str(self._get_name).lower() == "sqlitedb" and self.file_name == ":memory:":
+            raise ValueError("Bad argument timeout set. for SQLiteDB impossible to set timeout. Do it yourself")
+        if timeout is not None:
+            with tools.thread.ThreadPoolExecutor() as executor:
+                proc = executor.submit(self.run_script, script,
+                                       **{"params": params, "retrieve": retrieve,
+                                          "limit": limit, "ignore_error": ignore_error, "dict_res": dict_res,
+                                          "export": export, "export_name": export_name, "sep": sep,
+                                          "timeout": None})
+                try:
+                    return proc.result(timeout=timeout)
+                except tools.thread.TimeoutError as timeout_ex:
+                    proc.cancel()
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    self.rollback()
+                    raise timeout_ex
+
         if isinstance(script, str):
             try:
                 assert os.path.exists(script)
@@ -562,7 +579,7 @@ class BaseDB(abc.ABC):
             self._print_info(self.LAST_SQL_CODE_RUN, consider_params)
             self._print_info("**" * 10)
             self._print_error(ex)
-
+            self.rollback()
             if not ignore_error:
                 raise Exception(ex)
             return
@@ -588,6 +605,12 @@ class BaseDB(abc.ABC):
                     return tools.Cdict(data)
                 return [tools.Cdict(d) for d in data]
             return data
+
+    def rollback(self):
+        try:
+            self.db_object.rollback()
+        except (Exception, AttributeError):
+            pass
 
     @staticmethod
     def get_add_increment_field_code(field_name="id"):
@@ -658,13 +681,14 @@ class BaseDB(abc.ABC):
                         "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
                 ):
                     dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
-                    size = [len(str(x)) if x else 0 for x in dataset[col]]
-                    if max(size) == min(size):
-                        size = max(size)
+                    max_ = dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0).max()
+                    min_ = dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0).min()
+                    if max_ == min_:
+                        size = max_
                         if size == 0:
                             size = 255
                     else:
-                        size = max(size)
+                        size = max_
                     if size > 255:
                         type_ = 'clob' if "oracle" in self._get_name.lower() else "text"
                     else:
