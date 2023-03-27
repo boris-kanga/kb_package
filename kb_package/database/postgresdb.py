@@ -64,7 +64,8 @@ class PostgresDB(BaseDB):
             with export_file:
                 if export_name is not None:
                     export_file.write(for_csv(columns, sep=sep) + "\n")
-                while row is not None and len(data) < limit:
+                index_data = 0
+                while row is not None and index_data < limit:
                     if export_name is not None:
                         export_file.write(for_csv(row, sep=sep) + "\n")
                     else:
@@ -72,6 +73,7 @@ class PostgresDB(BaseDB):
                             row = dict(zip(columns, row))
                         data.append(row)
                     row = cursor.fetchone()
+                    index_data += 1
             if export_name is not None:
                 return
         except (Exception, psycopg2.DatabaseError):

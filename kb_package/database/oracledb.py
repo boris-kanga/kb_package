@@ -71,7 +71,8 @@ class OracleDB(BaseDB):
             with export_file:
                 if export_name is not None:
                     export_file.write(for_csv(columns, sep=sep) + "\n")
-                while len(data) < limit:
+                index_data = 0
+                while index_data < limit:
                     row = cursor.fetchone()
                     if not row:
                         break
@@ -79,6 +80,7 @@ class OracleDB(BaseDB):
                         export_file.write(for_csv(row, sep=sep) + "\n")
                     else:
                         data.append(row)
+                    index_data += 1
             if export_name is not None:
                 return
         except (Exception, cx_Oracle.Error):
