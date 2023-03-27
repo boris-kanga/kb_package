@@ -186,8 +186,7 @@ class BaseDB(abc.ABC):
     def db_types(self):
         return "SQL"
 
-    def insert_many(self, data: typing.Union[list, pandas.DataFrame, str], table_name, verbose=True, ftype=None,
-                    ignore_type=False,
+    def insert_many(self, data: typing.Union[list, pandas.DataFrame, str], table_name, verbose=False,
                     **kwargs):
         print = self._print_info
         loader = kwargs.pop("loader", None)
@@ -200,25 +199,8 @@ class BaseDB(abc.ABC):
         size = dataset.shape[0]
         if not size:
             return
-        # MAX_BUFFER_INSERTING_SIZE
-        if not isinstance(ftype, dict):
-            if len(dataset.columns) == 1 and isinstance(ftype, str):
-                ftype = {dataset.columns[0]: ftype}
-            else:
-                ftype = {}
-        types = {}
-        for field in dataset.columns:
-            types[field] = lambda x: x
-            if not ignore_type:
-                if is_integer_dtype(dataset[field]) and (
-                        is_integer_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
-                    types[field] = int
-                elif (is_float_dtype(dataset[field]) or is_integer_dtype(dataset[field])) and (
-                        is_float_dtype(str(ftype.get(field)).lower()) or ftype.get(field) is None):
-                    types[field] = float
-
-        dataset = dataset.to_dict("records")
-        first_value = dataset[0]
+        # dataset = dataset.to_dict("records")
+        first_value = dataset.loc[0].to_dict("records")
         part_vars = [str(k) for k in first_value.keys()]
 
         xx, _ = self.prepare_insert_data(first_value)
@@ -226,14 +208,16 @@ class BaseDB(abc.ABC):
         script = "INSERT INTO " + str(table_name) + \
                  " ( " + ",".join(part_vars) + \
                  ") VALUES ( " + ", ".join(xx) + " ) "
+        print("Inserting ...")
         if verbose:
             tools.ConsoleFormat.progress(0)
         for t, buffer in tools.get_buffer(dataset, max_buffer=self.MAX_BUFFER_INSERTING_SIZE):
+            buffer = buffer.to_dict("records")
             try:
                 self._execute(cursor, script,
                               params=[
                                   {
-                                      k: types[k](v)
+                                      k: v
                                       if not pandas.isnull(v) else None
                                       for k, v in row.items()
                                   } for row in buffer], method="many")
@@ -241,6 +225,7 @@ class BaseDB(abc.ABC):
                     loader(t)
                 if verbose:
                     tools.ConsoleFormat.progress(100 * t)
+                self.commit()
             except Exception as ex:
                 # print("\n", "->Got error with the buffer: ", buffer)
                 traceback.print_exc()
