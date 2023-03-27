@@ -370,10 +370,18 @@ class DatasetFactory:
                                        **{k: v for k, v in kwargs.items() if k in ["index", "dtype"]})
 
         cls.LAST_FILE_LOADING_TIME = time.time() - start_time
+        columns = cls._parse_columns_arg(columns, dataset.columns)
+        if columns is not None:
+            dataset = dataset.loc[:, columns.keys()]
+            dataset.rename(columns=columns, inplace=True)
 
+        return cls(dataset)
+
+    @staticmethod
+    def _parse_columns_arg(columns, dataset_columns):
         if tools.BasicTypes.is_iterable(columns):
             final_col = {}
-            dataset_columns = [tools.Var(col) for col in dataset.columns]
+            dataset_columns = [tools.Var(col) for col in dataset_columns]
             first = next(iter(columns))
             without = False
             if first is Ellipsis:
@@ -388,7 +396,7 @@ class DatasetFactory:
                 if isinstance(k, dict):
                     k, alias = next(iter(k.items()))
                 if k in dataset_columns:
-                    key = cls.__parse_col(k, dataset_columns)
+                    key = DatasetFactory.__parse_col(k, dataset_columns)
                     alias = columns[k] if isinstance(columns, dict) else alias or k
                 elif isinstance(k, str):
                     # à supprimer
@@ -403,10 +411,7 @@ class DatasetFactory:
                     final_col.pop(key)
                 else:
                     final_col[key] = alias
-            dataset = dataset.loc[:, final_col.keys()]
-            dataset.rename(columns=final_col, inplace=True)
-
-        return cls(dataset)
+            return final_col
 
     @staticmethod
     def _gen_columns_by_string(dataframe, op, alias=None):
@@ -593,9 +598,13 @@ class DatasetFactory:
             return res
 
     # Ok
-    def apply(self, func, convert_dtype=True, *, params=None, args=(), **kwargs):
+    def apply(self, func, axis=0, raw=False, result_type=None, *, params=(), args=(), **kwargs):
+        params = params or args
+        args = params
+        if kwargs and not params:
+            params = kwargs
         if not isinstance(func, str):
-            return self.__source.apply(func, convert_dtype, args=args, **kwargs)
+            return self.__source.apply(func, axis=axis, raw=raw, result_type=result_type, args=args, **kwargs)
         permit_funcs = ["pnn_ci"]
         q_permit_funcs = QueryTransformer.PERMIT_FUNC
         pnn_ci = numpy.vectorize(lambda f, plus="+", reseaux="ORANGE", permit_fix=False: tools.BasicTypes.pnn_ci(
@@ -654,7 +663,7 @@ class QueryTransformer(ast.NodeTransformer):
                     isinstance(m, numpy.vectorize))))
     }
 
-    def __init__(self, *args, hard=False, permit_funcs=None):
+    def __init__(self, *args, hard=True, permit_funcs=None):
         super().__init__()
         if len(args):
             self.PREFIX = args[0]
