@@ -561,6 +561,7 @@ class BaseDB(abc.ABC):
         else:
             cursor = self.get_cursor()
         consider_params = None
+        s = None
         try:
             for s in script:
                 s, consider_params, _type, nb_var = self._prepare_query(s, params, ignore_error)
@@ -576,7 +577,7 @@ class BaseDB(abc.ABC):
                         params.pop(0)
         except Exception as ex:
             self._print_info("*" * 10, "Got error when try to run", "*" * 10)
-            self._print_info(self.LAST_SQL_CODE_RUN, consider_params)
+            self._print_info(s or self.LAST_SQL_CODE_RUN, consider_params)
             self._print_info("**" * 10)
             self._print_error(ex)
             self.rollback()
@@ -733,4 +734,14 @@ class BaseDB(abc.ABC):
 
 
 def for_csv(row, sep=";"):
-    return sep.join(["" if pandas.isnull(d) else str(d) for d in row])
+    rows = []
+    for cell in row:
+        if pandas.isnull(cell):
+            cell = ""
+        else:
+            if (sep or ",") in str(cell):
+                cell = re.sub(r'(?<!")"(?!")', '""', str(cell), flags=re.I)
+                cell = f'"{cell}"'
+        rows.append(str(cell))
+
+    return sep.join(rows)
