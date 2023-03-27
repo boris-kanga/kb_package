@@ -83,12 +83,15 @@ class MongoDB(BaseDB):
             else:
                 data = data[:limit]
             if export_name is not None and data:
-                with open(export_name, "w") as export_file:
-                    if export_name is not None:
-                        export_file.write(for_csv(data[0].keys(), sep=sep) + "\n")
+                if callable(export_name):
                     for row in data:
-                        export_file.write(for_csv(row, sep=sep) + "\n")
-                    return
+                        export_name(row.values(), list(row.keys()))
+                else:
+                    with open(export_name, "w") as export_file:
+                        export_file.write(for_csv(data[0].keys(), sep=sep) + "\n")
+                        for row in data:
+                            export_file.write(for_csv(row.values(), sep=sep) + "\n")
+                return
         except (Exception, pymongo.cursor.RawBatchCursor):
             pass
         if limit == 1:

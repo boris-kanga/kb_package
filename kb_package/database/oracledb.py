@@ -66,17 +66,21 @@ class OracleDB(BaseDB):
         data = []
         try:
             export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
-            if export_name is not None:
+            if callable(export_name):
+                pass
+            elif export_name is not None:
                 export_file = open(export_name, "w")
             with export_file:
-                if export_name is not None:
+                if export_name is not None and not callable(export_name):
                     export_file.write(for_csv(columns, sep=sep) + "\n")
                 index_data = 0
                 while index_data < limit:
                     row = cursor.fetchone()
                     if not row:
                         break
-                    if export_name is not None:
+                    if callable(export_name):
+                        export_name(row, columns)
+                    elif export_name is not None:
                         export_file.write(for_csv(row, sep=sep) + "\n")
                     else:
                         data.append(row)

@@ -118,12 +118,15 @@ class SQLiteDB(BaseDB):
             else:
                 data = data[:limit]
             if export_name is not None:
-                with open(export_name, "w") as export_file:
-                    if export_name is not None:
-                        export_file.write(for_csv(columns, sep=sep) + "\n")
+                if callable(export_name):
                     for row in data:
-                        export_file.write(for_csv(row, sep=sep) + "\n")
-                    return
+                        export_name(row, columns)
+                else:
+                    with open(export_name, "w") as export_file:
+                        export_file.write(for_csv(columns, sep=sep) + "\n")
+                        for row in data:
+                            export_file.write(for_csv(row, sep=sep) + "\n")
+                return
         except (Exception, sqlite3.ProgrammingError):
             pass
         if limit == 1:
