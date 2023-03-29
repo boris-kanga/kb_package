@@ -28,7 +28,7 @@ class BaseDB(abc.ABC):
     REGEX_SPLIT_URI = re.compile(r"(\w+?)://([\w\-.]+):([\w\-.]+)@"
                                  r"([\w\-.]+):(\d+)(?:/([\w\-.]+))?")
     LAST_SQL_CODE_RUN = None
-    MAX_BUFFER_INSERTING_SIZE = 5000
+    MAX_BUFFER_INSERTING_SIZE = 100000
     LAST_REQUEST_COLUMNS = None
 
     def __init__(self, uri=None, **kwargs):
@@ -200,7 +200,7 @@ class BaseDB(abc.ABC):
         if not size:
             return
         # dataset = dataset.to_dict("records")
-        first_value = dataset.loc[0].to_dict("records")
+        first_value = dataset.loc[0].to_dict()
         part_vars = [str(k) for k in first_value.keys()]
 
         xx, _ = self.prepare_insert_data(first_value)
