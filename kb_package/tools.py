@@ -450,6 +450,8 @@ class Cdict(dict):
                 return [cls(d, _Cdict__no_parse_string=True) for d in data]
             else:
                 return cls(data, keys, **kwargs)
+        elif __no_parse_string and data is None:
+            return None
         elif isinstance(data, str):
             return data
         elif isinstance(data, (int, float)):
@@ -527,12 +529,14 @@ class Cdict(dict):
     def __setitem__(self, k, v):
         """ Set self[key] to value. """
         k = self.__parse_item(k)
+        v = Cdict(v, _Cdict__no_parse_string=True)
         super().__setitem__(k, v)
 
     def __setattr__(self, key, value):
         if key in ["_Cdict" + c for c in ["__file_name"]]:
             super().__setattr__(key, value)
             return
+        value = Cdict(value, _Cdict__no_parse_string=True)
         self.__setitem__(key, value)
 
 
