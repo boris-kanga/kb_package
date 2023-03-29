@@ -324,29 +324,44 @@ class DatasetFactory:
                                 pass
                     else:
                         kwargs_["sep"] = sep
+                    print(kwargs_)
                     dataset = pandas.read_csv(file_path, **kwargs_)
                 except UnicodeDecodeError as exc:
                     if not force_encoding:
                         raise exc
-                    min_buffer = int(re.search(r"position (\d+):", str(exc)).groups()[0]) + 100
-                    with open(file_path, "rb") as file_from_file_path:
-                        file_bytes = file_from_file_path.read(min_buffer)
-                        encoding_proba = chardet.detect(file_bytes).get("encoding", "latin1")
-                    if kwargs_["encoding"] != encoding_proba:
-                        Logger.warning("We force encoding to:", encoding_proba)
-                        kwargs_["encoding"] = encoding_proba
-                        if "sep" not in kwargs_ or used_sniffer:
-                            with open(file_path, encoding=kwargs_["encoding"]) as file:
-                                sample = [file.readline() for _ in range(10)]
-                                try:
-                                    sep = DatasetFactory._check_delimiter(sample, delimiters)
-                                    assert sep, ""
-                                    kwargs_["sep"] = sep
-                                except (csv.Error, AssertionError):
-                                    pass
-                        dataset = pandas.read_csv(file_path, **kwargs_)
-                    else:
-                        raise exc
+
+                    last_min_buffer = None
+                    while True:
+                        min_buffer = int(re.search(r"position (\d+):", str(exc)).groups()[0]) + 100
+                        print(min_buffer)
+                        if min_buffer == last_min_buffer:
+                            raise exc
+                        with open(file_path, "rb") as file_from_file_path:
+                            file_bytes = file_from_file_path.read(min_buffer)
+                            encoding_proba = chardet.detect(file_bytes).get("encoding", "latin1")
+                            if str(encoding_proba).lower() == "ascii":
+                                encoding_proba = "cp1252"
+                        if kwargs_["encoding"] != encoding_proba:
+                            Logger.warning("We force encoding to:", encoding_proba)
+                            kwargs_["encoding"] = encoding_proba
+                            try:
+                                if "sep" not in kwargs_ or used_sniffer:
+                                    with open(file_path, encoding=kwargs_["encoding"]) as file:
+                                        sample = [file.readline() for _ in range(10)]
+                                        try:
+                                            sep = DatasetFactory._check_delimiter(sample, delimiters)
+                                            assert sep, ""
+                                            kwargs_["sep"] = sep
+                                        except (csv.Error, AssertionError):
+                                            pass
+                                dataset = pandas.read_csv(file_path, **kwargs_)
+                                break
+                            except UnicodeDecodeError as ex:
+                                kwargs_["encoding"] = None
+                                exc = ex
+                        else:
+                            raise exc
+                        last_min_buffer = min_buffer
         elif hasattr(file_path, "readable") and file_path.readable():
             sample = [file_path.readline() for _ in range(10)]
             file_path.seek(0)
