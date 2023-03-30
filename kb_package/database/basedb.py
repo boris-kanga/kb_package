@@ -31,6 +31,8 @@ class BaseDB(abc.ABC):
     MAX_BUFFER_INSERTING_SIZE = 100000
     LAST_REQUEST_COLUMNS = None
 
+    MAX_PARAMETERS = 1000
+
     def __init__(self, uri=None, **kwargs):
         """
             kwargs:
@@ -212,7 +214,7 @@ class BaseDB(abc.ABC):
         if verbose:
             tools.ConsoleFormat.progress(0)
         for t, buffer in tools.get_buffer(dataset, max_buffer=self.MAX_BUFFER_INSERTING_SIZE):
-            buffer = buffer.to_dict("records")
+            buffer = buffer.astype(object).replace(DatasetFactory.NAN, None).to_dict("records")
             try:
                 self._execute(cursor, script,
                               params=[
@@ -547,9 +549,13 @@ class BaseDB(abc.ABC):
             cursor = self.get_cursor()
         consider_params = None
         s = None
+        concat_s = ""
         try:
             for s in script:
                 s, consider_params, _type, nb_var = self._prepare_query(s, params, ignore_error)
+                concat_s += s
+                assert len(consider_params or []) <= self.MAX_PARAMETERS, "Max parameters reach. " \
+                                                                          "Please consider this error."
                 cursor = self._execute(cursor, s, params=consider_params,
                                        ignore_error=False,
                                        connexion=self.db_object)
@@ -561,6 +567,8 @@ class BaseDB(abc.ABC):
                     for _ in range(nb_var):
                         params.pop(0)
         except Exception as ex:
+            if concat_s:
+                self.LAST_SQL_CODE_RUN = concat_s
             self._print_info("*" * 10, "Got error when try to run", "*" * 10)
             self._print_info(s or self.LAST_SQL_CODE_RUN, consider_params)
             self._print_info("**" * 10)
@@ -663,12 +671,12 @@ class BaseDB(abc.ABC):
                     got = True
                     table_script += f"\n\t{field} {ftype.get(col)}"
 
-                elif dataset[col][:100].apply(lambda val: not _is_datetime_field(val)).any() and (
+                elif dataset[col].apply(lambda val: not _is_datetime_field(val)).any() and (
                         "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
                 ):
                     dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
-                    max_ = dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0).max()
-                    min_ = dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0).min()
+                    max_ = max(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
+                    min_ = min(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
                     if max_ == min_:
                         size = max_
                         if size == 0:
@@ -683,13 +691,13 @@ class BaseDB(abc.ABC):
                         type_ = f"varchar({size or 255})"
 
                 else:
-                    if dataset[col][:100].apply(lambda val: tools.CustomDateTime(str(val)).is_datetime).any():
-                        type_ = "datetime"
+                    if dataset[col][:100].apply(lambda val: False if DatasetFactory.is_null(val) else tools.CustomDateTime(str(val)).is_datetime).any():
+                        type_ = "TIMESTAMP" if "oracle" in self._get_name.lower() else "datetime"
                         dataset[col] = dataset[col].apply(
-                            lambda val: tools.CustomDateTime(str(val), default=None)())
+                            lambda val: tools.CustomDateTime(str(val), default=None, ignore_errors=True)())
                     else:
                         dataset[col] = dataset[col].apply(
-                            lambda val: tools.CustomDateTime(str(val), default=None).date)
+                            lambda val: tools.CustomDateTime(str(val), default=None, ignore_errors=True).date)
                         type_ = "date"
                 if not got:
                     table_script += f"\n\t{field} {type_}"
