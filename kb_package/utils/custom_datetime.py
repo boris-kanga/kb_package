@@ -483,10 +483,33 @@ class CustomDateTime:
     # Ok
     @classmethod
     def from_calculation(cls,
-                         date_time: str | datetime.datetime | datetime.date = "now",
-                         minus_or_add: str = None, **kwargs):
+                         date_time: str | datetime.datetime | datetime.date | CustomDateTime = "now",
+                         minus_or_add: str | int | float = None, **kwargs):
+        """
+        use to generate new date from the passing arg date_time by applying some added day, month, year,
+            second, minutes, weeks
+        Args:
+            date_time: (str, datetime.datetime | datetime.date | CustomDateTime), the init date
+            minus_or_add: (str, int, float):
+                        when : str
+                            it's needed to specify what we want to add. Example
+                            >> minus_or_add = "1 day -1month 3 years"; date_time="2023-01-01"
+                            (Result) 2025-12-02 00:00:00
+                        when : int
+                            this is equivalent to f'{minus_or_add} days'
+                        when : float
+                            Equivalent to f'{minus_or_add} seconds'
+        """
 
         date_time = cls._parse(date_time, **kwargs)
+        if isinstance(minus_or_add, int):
+            minus_or_add = str(minus_or_add) + " day"
+        elif isinstance(minus_or_add, float):
+            sign = 1 if minus_or_add >= 0 else -1
+            sec, micro = str(abs(minus_or_add)).split(".")
+            micro = int(micro) * 1000
+            minus_or_add = f"{sign*sec}secs {sign*micro}microseconds"
+
         if isinstance(minus_or_add, str):
             values = re.findall(
                 r"([-+])?\s*(\d+)\s*(days?|months?|years?|"
@@ -541,4 +564,4 @@ class CustomDateTime:
 
 
 if __name__ == '__main__':
-    print(CustomDateTime("20230318 20:10"))
+    print(CustomDateTime.from_calculation("now", "1 week"))
