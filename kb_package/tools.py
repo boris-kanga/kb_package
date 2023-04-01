@@ -432,9 +432,12 @@ class CustomFileOpen:
 class Cdict(dict):
     NO_CAST_CONSIDER = True
 
-    def __new__(cls, data: Union[dict, list, tuple, str] = None,
-                keys: Union[list, tuple, str] = None,
-                **kwargs):
+    def __new__(cls, *args, **kwargs):
+        data = {}
+        if len(args) == 1:
+            data = args[0]
+        elif len(args) > 1:
+            data = args
         __no_parse_string = kwargs.get("_Cdict__no_parse_string", False)
         if isinstance(data, str) and not __no_parse_string:
             got = False
@@ -445,12 +448,15 @@ class Cdict(dict):
             except (FileNotFoundError, FileExistsError, Exception):
                 pass
             if not got:
-                data = json.loads(data)
+                try:
+                    data = json.loads(data)
+                except json.decoder.JSONDecodeError:
+                    return data
             if isinstance(data, list):
                 return [cls(d, _Cdict__no_parse_string=True) for d in data]
             else:
-                return cls(data, keys, **kwargs)
-        elif __no_parse_string and data is None:
+                return cls(data, **kwargs)
+        elif data is None:
             return None
         elif isinstance(data, str):
             return data
@@ -460,10 +466,13 @@ class Cdict(dict):
             return type(data)([cls(d, _Cdict__no_parse_string=True) for d in data])
         return dict.__new__(cls)
 
-    def __init__(self, data: Union[dict, list, tuple, str] = None,
-                 keys: Union[list, tuple, str] = None,
-                 **kwargs):
+    def __init__(self, *args, **kwargs):
         kwargs.pop("_Cdict__no_parse_string", None)
+        data = {}
+        if len(args) == 1:
+            data = args[0]
+        elif len(args) > 1:
+            data = args
         self.__file_name = None
         if isinstance(data, dict):
             data.update(kwargs)
