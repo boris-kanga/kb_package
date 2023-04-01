@@ -5,8 +5,8 @@ Use for run easily mysql requests
 """
 
 import sqlite3
-from kb_package.database.basedb import BaseDB, for_csv
-from kb_package.tools import INFINITE
+from kb_package.database.basedb import BaseDB
+from kb_package.tools import Cdict
 
 
 class SQLiteDB(BaseDB):
@@ -105,35 +105,8 @@ class SQLiteDB(BaseDB):
             raise Exception(ex)
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
-        columns = [col[0] for col in cursor.description or []]
-        SQLiteDB.LAST_REQUEST_COLUMNS = columns
-        if dict_res and export_name is None:
-            cursor.row_factory = lambda *args: dict(zip(columns, args[1]))
-        data = []
-        try:
-            data = cursor.fetchall()
-            if limit.__class__ == INFINITE.__class__:
-                pass
-            else:
-                data = data[:limit]
-            if export_name is not None:
-                if callable(export_name):
-                    for row in data:
-                        export_name(row, columns)
-                else:
-                    with open(export_name, "w") as export_file:
-                        export_file.write(for_csv(columns, sep=sep) + "\n")
-                        for row in data:
-                            export_file.write(for_csv(row, sep=sep) + "\n")
-                return
-        except (Exception, sqlite3.ProgrammingError):
-            pass
-        if limit == 1:
-            if len(data):
-                return data[0]
-            return None
-        return data
+    def _get_cursor_description(cursor):
+        return Cdict(columns=[desc[0] for desc in cursor.description or []])
 
     @staticmethod
     def prepare_insert_data(data: dict):

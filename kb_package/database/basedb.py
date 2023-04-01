@@ -11,15 +11,33 @@ from kb_package.tools import INFINITE
 import os
 from kb_package import tools
 from kb_package.utils.fdataset import DatasetFactory
-from datetime import datetime as _datetime
 
 
-def _is_datetime_field(value):
+def _parse_date_value(value, format_=()):
+    default_date_format = ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d_%m_%Y", "%Y_%m_%d",
+                           "%d %B %Y", "%d-%B-%Y")
+    if not format_:
+        format_ = default_date_format
+    elif isinstance(format_, str):
+        format_ = list(default_date_format) + [format_]
+    if pandas.isnull(value):
+        return None, False
+    value = tools.CustomDateTime(str(value), d_format=format_)
+    return value.to_string("yyyy-mm-dd hh:mm:ss"), value.is_datetime
+
+
+def _can_be_datetime_field(series, date_format=()):
+    # returns NO, DATETIME, DATE
     try:
-        d = tools.CustomDateTime(value)()
-        return pandas.isnull(d) or isinstance(d, _datetime)
-    except (AssertionError, Exception):
-        return False
+        for ss in tools.get_buffer(series, 10000, vv=False):
+            res = ss.apply(lambda val: _parse_date_value(val, format_=date_format))
+            if any([d[1] for d in res]):
+                return "DATETIME"
+            if len([... for d in res if d[0] is not None]) >= len(ss)/3:
+                return "DATE"
+        return "DATE"
+    except (ValueError, AssertionError, Exception):
+        return "NO"
 
 
 class BaseDB(abc.ABC):
@@ -129,7 +147,7 @@ class BaseDB(abc.ABC):
         Returns: the connexion object reach
 
         """
-        pass
+        ...
 
     def reload_connexion(self):
         """
@@ -143,7 +161,7 @@ class BaseDB(abc.ABC):
 
     @abc.abstractmethod
     def _cursor(self):
-        return None
+        ...
 
     def last_insert_rowid_logic(self, cursor=None, table_name=None):
         return cursor
@@ -287,9 +305,63 @@ class BaseDB(abc.ABC):
             pass
 
     @staticmethod
+    def _fetchone(cursor, limit=INFINITE):
+        index_data = 0
+        while index_data < limit:
+            row = cursor.fetchone()
+            if not row:
+                break
+            index_data += 1
+            yield row
+
+    @staticmethod
     @abc.abstractmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
-        return []
+    def _get_cursor_description(cursor):
+        ...
+
+    @staticmethod
+    def _check_if_cursor_has_rows(cursor):
+        return True
+
+    # @abc.abstractmethod
+    def get_all_data_from_cursor(self, cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
+        if not self._check_if_cursor_has_rows(cursor):
+            return None
+        self.LAST_REQUEST_COLUMNS = self._get_cursor_description(cursor).columns
+        columns = self.LAST_REQUEST_COLUMNS
+
+        data = []
+        try:
+            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
+            if callable(export_name):
+                pass
+            elif export_name is not None:
+                export_file = open(export_name, "w")
+
+            with export_file:
+                if export_name is not None and not callable(export_name):
+                    export_file.write(for_csv(columns, sep=sep) + "\n")
+
+                for row in self._fetchone(cursor, limit=limit):
+                    if not row:
+                        break
+                    if dict_res and export_name is None:
+                        row = dict(zip(columns, row))
+                    if callable(export_name):
+                        export_name(row, columns)
+                    elif export_name is not None:
+                        export_file.write(for_csv(row, sep=sep) + "\n")
+                    else:
+                        data.append(row)
+            if export_name is not None:
+                return
+        except Exception:
+            pass
+        if limit == 1:
+            if len(data):
+                return data[0]
+            return None
+        return data
 
     @staticmethod
     def _script_tokenizer(sql):
@@ -570,6 +642,8 @@ class BaseDB(abc.ABC):
             if concat_s:
                 self.LAST_SQL_CODE_RUN = concat_s
             self._print_info("*" * 10, "Got error when try to run", "*" * 10)
+            if isinstance(consider_params, (tuple, list)) and len(consider_params) > 20:
+                consider_params = repr(consider_params[:20])[:-1] + f", ...] ({len(consider_params)})"
             self._print_info(s or self.LAST_SQL_CODE_RUN, consider_params)
             self._print_info("**" * 10)
             self._print_error(ex)
@@ -614,6 +688,7 @@ class BaseDB(abc.ABC):
                      auto_increment_field=False,
                      auto_increment_field_name=None,
                      columns=None, ftype=None, verbose=True, only_structure=False, **kwargs):
+        date_str_format = kwargs.get("date_str_format")
         if verbose:
             print = self._print_info
         else:
@@ -671,27 +746,27 @@ class BaseDB(abc.ABC):
                     got = True
                     table_script += f"\n\t{field} {ftype.get(col)}"
 
-                elif dataset[col].apply(lambda val: not _is_datetime_field(val)).any() and (
-                        "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
-                ):
-                    dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
-                    max_ = max(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
-                    min_ = min(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
-                    if max_ == min_:
-                        size = max_
-                        if size == 0:
-                            size = 255
-                    else:
-                        size = max_
-                    if size > 255:
-                        type_ = 'clob' if "oracle" in self._get_name.lower() else "text"
-                    else:
-                        if size > 3:
-                            size = max(255, size)
-                        type_ = f"varchar({size or 255})"
-
-                else:
-                    if dataset[col][:100].apply(lambda val: False if DatasetFactory.is_null(val) else tools.CustomDateTime(str(val)).is_datetime).any():
+                if not got:
+                    is_datetime_resp = _can_be_datetime_field(dataset[col], date_format=date_str_format)
+                    if is_datetime_resp == "NO" and (
+                            "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
+                    ):
+                        dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
+                        max_ = max(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
+                        min_ = min(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
+                        if max_ == min_:
+                            size = max_
+                            if size == 0:
+                                size = 255
+                        else:
+                            size = max_
+                        if size > 255:
+                            type_ = 'clob' if "oracle" in self._get_name.lower() else "text"
+                        else:
+                            if size > 3:
+                                size = max(255, size)
+                            type_ = f"varchar({size or 255})"
+                    elif is_datetime_resp == "DATETIME":
                         type_ = "TIMESTAMP" if "oracle" in self._get_name.lower() else "datetime"
                         dataset[col] = dataset[col].apply(
                             lambda val: tools.CustomDateTime(str(val), default=None, ignore_errors=True)())
@@ -699,7 +774,7 @@ class BaseDB(abc.ABC):
                         dataset[col] = dataset[col].apply(
                             lambda val: tools.CustomDateTime(str(val), default=None, ignore_errors=True).date)
                         type_ = "date"
-                if not got:
+
                     table_script += f"\n\t{field} {type_}"
             dataset.rename(columns={col: field}, inplace=True)
 

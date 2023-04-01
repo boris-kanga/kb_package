@@ -7,8 +7,8 @@ Required psycopg2~=2.9.3
 """
 
 import psycopg2
-from kb_package.tools import INFINITE
-from kb_package.database.basedb import BaseDB, for_csv
+from kb_package.tools import Cdict
+from kb_package.database.basedb import BaseDB
 
 
 class PostgresDB(BaseDB):
@@ -53,41 +53,8 @@ class PostgresDB(BaseDB):
         return self.db_object.cursor()
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
-        columns = [desc[0] for desc in cursor.description or []]
-        data = []
-        try:
-            row = cursor.fetchone()
-            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
-
-            if callable(export_name):
-                pass
-            elif export_name is not None:
-                export_file = open(export_name, "w")
-            with export_file:
-                if export_name is not None and not callable(export_name):
-                    export_file.write(for_csv(columns, sep=sep) + "\n")
-                index_data = 0
-                while row is not None and index_data < limit:
-                    if callable(export_name):
-                        export_name(row, columns)
-                    elif export_name is not None:
-                        export_file.write(for_csv(row, sep=sep) + "\n")
-                    else:
-                        if dict_res:
-                            row = dict(zip(columns, row))
-                        data.append(row)
-                    row = cursor.fetchone()
-                    index_data += 1
-            if export_name is not None:
-                return
-        except (Exception, psycopg2.DatabaseError):
-            pass
-        if limit == 1:
-            if len(data):
-                return data[0]
-            return None
-        return data
+    def _get_cursor_description(cursor):
+        return Cdict(columns=[desc[0] for desc in cursor.description or []])
 
     @staticmethod
     def _execute(cursor, script, params=None, ignore_error=False, connexion=None, **kwargs):

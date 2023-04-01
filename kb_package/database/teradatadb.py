@@ -3,8 +3,8 @@
 The Teradata database manager.
 Use for run easily Teradata requests
 """
-from kb_package.tools import INFINITE
-from kb_package.database.basedb import BaseDB, for_csv
+from kb_package.tools import Cdict
+from kb_package.database.basedb import BaseDB
 import teradatasql
 
 
@@ -100,42 +100,8 @@ class TeradataDB(BaseDB):
             raise Exception(ex)
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
-        columns = [col[0] for col in cursor.description or []]
-        TeradataDB.LAST_REQUEST_COLUMNS = columns
-        data = []
-        try:
-            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
-            if callable(export_name):
-                pass
-            elif export_name is not None:
-                export_file = open(export_name, "w")
-            with export_file:
-                if export_name is not None and not callable(export_name):
-                    export_file.write(for_csv(columns, sep=sep) + "\n")
-                index_data = 0
-                while index_data < limit:
-                    row = cursor.fetchone()
-                    if not row:
-                        break
-                    if dict_res and export_name is None:
-                        row = dict(zip(columns, row))
-                    if callable(export_name):
-                        export_name(row, columns)
-                    elif export_name is not None:
-                        export_file.write(for_csv(row, sep=sep) + "\n")
-                    else:
-                        data.append(row)
-                    index_data += 1
-            if export_name is not None:
-                return
-        except (Exception, teradatasql.DatabaseError):
-            pass
-        if limit == 1:
-            if len(data):
-                return data[0]
-            return None
-        return data
+    def _get_cursor_description(cursor):
+        return Cdict(columns=[col[0] for col in cursor.description or []])
 
     def create_table(self, arg, table_name=None, if_not_exists=True,
                      auto_increment_field=False,
@@ -156,12 +122,11 @@ class TeradataDB(BaseDB):
                                  auto_increment_field_name=auto_increment_field_name,
                                  columns=columns, ftype=ftype, verbose=verbose, **kwargs)
 
-    def insert_many(self, data, table_name, verbose=True, ftype=None,
-                    ignore_type=False,
+    def insert_many(self, data, table_name, verbose=True,
                     **kwargs):
         # for export
         # self._cursor().execute ("{fn teradata_write_csv(" + sFileName + ")}select * from table")
         if isinstance(data, str):
             self._cursor().execute("{fn teradata_read_csv(%s)} insert into %s (?, ?)" % (data, table_name))
         else:
-            super().insert_many(data, table_name, verbose=verbose, ftype=ftype, ignore_type=ignore_type, **kwargs)
+            super().insert_many(data, table_name, verbose=verbose, **kwargs)

@@ -10,8 +10,8 @@ required mysql-connector-python~=8.0.25
 import traceback
 
 import mysql.connector
-from kb_package.tools import INFINITE
-from kb_package.database.basedb import BaseDB, for_csv
+from kb_package.tools import Cdict
+from kb_package.database.basedb import BaseDB
 
 
 class MysqlDB(BaseDB):
@@ -98,44 +98,12 @@ class MysqlDB(BaseDB):
         return str(field_name or "id") + " MEDIUMINT PRIMARY KEY AUTOINCREMENT"
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
-        if not cursor.with_rows:
-            return None
-        MysqlDB.LAST_REQUEST_COLUMNS = cursor.column_names
+    def _get_cursor_description(cursor):
+        return Cdict(columns=cursor.column_names)
 
-        data = []
-        try:
-            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
-            if callable(export_name):
-                pass
-            elif export_name is not None:
-                export_file = open(export_name, "w")
-            with export_file:
-                if export_name is not None and not callable(export_name):
-                    export_file.write(for_csv(cursor.column_names, sep=sep) + "\n")
-                index_data = 0
-                while index_data < limit:
-                    row = cursor.fetchone()
-                    if not row:
-                        break
-                    if dict_res and export_name is None:
-                        row = dict(zip(cursor.column_names, row))
-                    if callable(export_name):
-                        export_name(row, cursor.column_names)
-                    elif export_name is not None:
-                        export_file.write(for_csv(row, sep=sep) + "\n")
-                    else:
-                        data.append(row)
-                    index_data += 1
-            if export_name is not None:
-                return
-        except (Exception, mysql.connector.errors.ProgrammingError):
-            pass
-        if limit == 1:
-            if len(data):
-                return data[0]
-            return None
-        return data
+    @staticmethod
+    def _check_if_cursor_has_rows(cursor):
+        return cursor.with_rows
 
     def run_script_file(self, path, params=None):
         """

@@ -11,8 +11,8 @@ import os
 
 import cx_Oracle
 
-from kb_package.database.basedb import BaseDB, for_csv
-from kb_package.tools import INFINITE
+from kb_package.database.basedb import BaseDB
+from kb_package.tools import Cdict
 
 
 class OracleDB(BaseDB):
@@ -57,43 +57,8 @@ class OracleDB(BaseDB):
         return [":" + str(d) for d in data.keys()], data
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
-        columns = [col[0] for col in cursor.description or []]
-        OracleDB.LAST_REQUEST_COLUMNS = columns
-        if dict_res and export_name is None:
-            cursor.rowfactory = lambda *args: dict(zip(columns, args))
-
-        data = []
-        try:
-            export_file = type("MyTempFile", (), {"__enter__": lambda *args: 1, "__exit__": lambda *args: 1})()
-            if callable(export_name):
-                pass
-            elif export_name is not None:
-                export_file = open(export_name, "w")
-            with export_file:
-                if export_name is not None and not callable(export_name):
-                    export_file.write(for_csv(columns, sep=sep) + "\n")
-                index_data = 0
-                while index_data < limit:
-                    row = cursor.fetchone()
-                    if not row:
-                        break
-                    if callable(export_name):
-                        export_name(row, columns)
-                    elif export_name is not None:
-                        export_file.write(for_csv(row, sep=sep) + "\n")
-                    else:
-                        data.append(row)
-                    index_data += 1
-            if export_name is not None:
-                return
-        except (Exception, cx_Oracle.Error):
-            pass
-        if limit == 1:
-            if len(data):
-                return data[0]
-            return None
-        return data
+    def _get_cursor_description(cursor):
+        return Cdict(columns=[col[0] for col in cursor.description or []])
 
     @staticmethod
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):

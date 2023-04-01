@@ -12,8 +12,8 @@ import traceback
 import pymongo
 
 from kb_package.database.where_clause import WhereClause
-from kb_package.database.basedb import BaseDB, for_csv
-from kb_package.tools import INFINITE
+from kb_package.database.basedb import BaseDB
+from kb_package.tools import INFINITE, Cdict
 from kb_package import tools
 
 
@@ -73,32 +73,17 @@ class MongoDB(BaseDB):
         return self.db_object[self.database_name]
 
     @staticmethod
-    def get_all_data_from_cursor(cursor, limit=INFINITE, dict_res=True, export_name=None, sep=";"):
-        # dict_res arg mongo db
-        data = []
-        try:
-            data = list(cursor)
-            if limit.__class__ == INFINITE.__class__:
-                pass
-            else:
-                data = data[:limit]
-            if export_name is not None and data:
-                if callable(export_name):
-                    for row in data:
-                        export_name(row.values(), list(row.keys()))
-                else:
-                    with open(export_name, "w") as export_file:
-                        export_file.write(for_csv(data[0].keys(), sep=sep) + "\n")
-                        for row in data:
-                            export_file.write(for_csv(row.values(), sep=sep) + "\n")
-                return
-        except (Exception, pymongo.cursor.RawBatchCursor):
-            pass
-        if limit == 1:
-            if len(data):
-                return data[0]
-            return None
-        return data
+    def _fetchone(cursor, limit=INFINITE):
+        index_data = 0
+        for d in list(cursor):
+            if index_data >= limit:
+                break
+            yield d
+            index_data += 1
+
+    @staticmethod
+    def _get_cursor_description(cursor):
+        return Cdict(columns=[d for d in cursor[0]])
 
     @staticmethod
     def _execute(cursor, script, params=None, ignore_error=False, **kwargs):
@@ -125,7 +110,8 @@ class MongoDB(BaseDB):
                 return None
             raise Exception(ex)
 
-    def create_table(self, arg: str, table_name=None, auto_increment_field=False, auto_increment_field_name=None):
+    def create_table(self, arg: str, table_name=None, auto_increment_field=False, auto_increment_field_name=None,
+                     **kwargs):
         pass
 
     @staticmethod
