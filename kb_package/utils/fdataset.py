@@ -38,6 +38,7 @@ class DatasetFactory:
     LAST_FILE_LOADING_TIME = 0
 
     is_null = pandas.isnull
+    NAN = numpy.nan
 
     def __init__(self, dataset: typing.Union[pandas.DataFrame, str, list, dict] = None,
                  dd=False, drop_on=None, **kwargs):
@@ -89,6 +90,8 @@ class DatasetFactory:
                     if s.stop is not None:
                         stop = self.__parse_col(s.stop, self.columns)
                     s = slice(start, stop, s.step)
+                elif isinstance(s, str):
+                    s = self.__parse_col(s, self.columns)
                 cols.append(s)
             return tuple(cols)
         return self.__parse_col(col, self.columns)
@@ -324,7 +327,6 @@ class DatasetFactory:
                                 pass
                     else:
                         kwargs_["sep"] = sep
-                    print(kwargs_)
                     dataset = pandas.read_csv(file_path, **kwargs_)
                 except UnicodeDecodeError as exc:
                     if not force_encoding:
