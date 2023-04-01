@@ -107,7 +107,8 @@ class CustomDateTime:
 
     # Ok
     @staticmethod
-    def range_date(inf: datetime.date | CustomDateTime | str, sup: datetime.date | CustomDateTime | str | int = None, step=1,
+    def range_date(inf: datetime.date | CustomDateTime | str, sup: datetime.date | CustomDateTime | str | int = None,
+                   step=1,
                    freq="day"):
         assert isinstance(step, int) and step != 0, "Bad value of step param. %s given" % (step,)
         freq = freq.lower().strip()
@@ -183,6 +184,80 @@ class CustomDateTime:
             for i in range(0, d, abs(step) or 1):
                 yield inf + datetime.timedelta(**{freq: i * sign})
 
+    @staticmethod
+    def _parse_format(d_format, current_time=None):
+        time_ = False
+        d_format = d_format.replace("%", "")
+        d_format = re.sub("yyyy", "%Y", d_format, flags=re.I)
+        d_format = re.sub("yy", "%y", d_format, flags=re.I)
+        d_format = re.sub("aaaa", "%Y", d_format, flags=re.I)
+        d_format = re.sub("aa", "%y", d_format, flags=re.I)
+
+        d_format = re.sub("mm", "%m", d_format, flags=re.I)
+        d_format = re.sub("dd", "%d", d_format, flags=re.I)
+        d_format = re.sub("jj", "%d", d_format, flags=re.I)
+        d_format = re.sub("yyyy", "%Y", d_format, flags=re.I)
+
+        # hour
+        d_format = re.sub("hh", "%H", d_format, flags=re.I)
+        d_format = re.sub("ss", "%S", d_format, flags=re.I)
+        if current_time is not None:
+            d_format = re.sub("day", CustomDateTime._get_weekday(current_time), d_format, flags=re.I)
+            d_format = re.sub(r"d\.", CustomDateTime._get_weekday(current_time, abr=True), d_format, flags=re.I)
+            d_format = re.sub("jour", CustomDateTime._get_weekday(current_time), d_format, flags=re.I)
+            d_format = re.sub(r"j\.", CustomDateTime._get_weekday(current_time, abr=True), d_format, flags=re.I)
+            d_format = re.sub("month", CustomDateTime._get_month(current_time), d_format, flags=re.I)
+            d_format = re.sub("mois", CustomDateTime._get_month(current_time), d_format, flags=re.I)
+            d_format = re.sub(r"m\.", CustomDateTime._get_month(current_time, abr=True), d_format, flags=re.I)
+
+        last_car_is_percent = False
+        final_format = ""
+
+        # one
+        for car in re.split("(?<![A-Za-zÀ-ÖØ-öø-ÿ])(" + REGEX_FRENCH_CHARACTER + ")(?!" +
+                            REGEX_FRENCH_CHARACTER + ")", d_format):
+            if last_car_is_percent:
+                pass
+            else:
+                car = {"d": "%d", "j": "%d", "a": "%Y", "y": "%Y", "m": "%m"}.get(car.lower(), car)
+            last_car_is_percent = False
+            if "%" in car:
+                last_car_is_percent = True
+            final_format += car
+
+        d_format = final_format
+
+        # three
+        for x in permutations("ymd"):
+            d_format = re.sub(''.join(x), "%" + ("%".join([i if i != "y" else "Y" for i in x])), d_format,
+                              flags=re.I)
+        # two
+        for x in "ymd":
+            for xx in "ymd":
+                if xx != x:
+                    for p in permutations(x + xx):
+                        d_format = re.sub(''.join(p), "%" + ("%".join([i if i != "y" else "Y" for i in p])),
+                                          d_format,
+                                          flags=re.I)
+
+        temp = d_format
+        res = re.search(r"%?h{1,2}(\s*[:-\\_ ]*\s*)?%?m{1,2}((\s*[:-\\_ ]*\s*?)%?s{1,2})?", temp, flags=re.I)
+        final_temp = ""
+
+        while res:
+            time_ = True
+            sepc = res.groups()
+            part = temp[:res.start()] + "%H" + sepc[0] + "%M"
+            if sepc[1] is not None:
+                part += sepc[2] + "%S"
+            final_temp += part
+            temp = temp[res.end():]
+            res = re.search(r"%?h{1,2}(\s*[:-\\_ ]*\s*)?%?m{1,2}((\s*[:-\\_ ]*\s*?)%?s{1,2})?", temp, flags=re.I)
+
+        d_format = final_temp + temp
+
+        return d_format, time_
+
     # Ok
     @staticmethod
     def _parse(date_value: str | datetime.datetime | datetime.date | CustomDateTime = "now",
@@ -194,7 +269,18 @@ class CustomDateTime:
         if isinstance(date_value, (datetime.datetime, datetime.date)):
             return datetime.datetime.fromisoformat(date_value.isoformat())
         if isinstance(format_, str):
-            return datetime.datetime.strptime(str(date_value), format_)
+            format_ = [format_]
+        if isinstance(format_, (list, tuple)):
+            for ff in format_:
+                try:
+                    if "%" not in ff:
+                        ff, _ = CustomDateTime._parse_format(ff)
+                    return datetime.datetime.strptime(str(date_value), ff)
+                except (ValueError, Exception):
+                    pass
+            if ignore_errors:
+                return CustomDateTime(default)()
+            raise ValueError("Given arg (%s) doesn't match any format given: %s" % (date_value, format_))
         now = datetime.datetime.now()
 
         args = {k: kwargs.get(k, getattr(now, k))
@@ -205,103 +291,172 @@ class CustomDateTime:
         if date_value == "now" or date_value is None:
             date_value = now
         elif isinstance(date_value, str):
-            if len(date_value) < 6 or not re.search(r"(\d{4}|\d{8}|\d{6}|\d{2})", date_value) or re.search(
-                    r"\d{9,}", date_value):
+
+            if len(date_value) < 6 or re.search(r"\d{9,}", date_value) or not re.search(r'\d{2}', date_value):
                 if ignore_errors:
                     return CustomDateTime(default)()
                 raise ValueError("Bad value given for argument date_value: " + date_value)
-            date_value = date_value.strip()
-            reg = (r'^(\d{4})[_/-]?(\d{1,2})[_/-]?(\d{1,2})(?:[A-Z ]?'
-                   r'(\d{1,2})[:_](\d{1,2})(?:[:_](\d{1,2})(?:\.(\d+))?)?)?$'
-                   )
-            res = re.search(reg, date_value)
 
-            if res:
-                got = True
-                year, month, day, hour, minute, second, micro = res.groups()
-                if int(month) not in range(1, 13):
-                    got = False
-                elif int(year) < 1900:
-                    got = False
-                elif int(day) > 31:
-                    got = False
-                if got:
-                    try:
-                        return datetime.datetime(year=int(year),
-                                                 month=int(month),
-                                                 day=int(day),
-                                                 hour=int(hour or 0),
-                                                 minute=int(minute or 0),
-                                                 second=int(second or 0),
-                                                 microsecond=int(micro or 0) * 1000
-                                                 )
-                    except ValueError:
-                        pass
-            # try to extract the date from string
-            reg_1 = r'\s(\d{1,2})[_/-]?(\d{1,2})[_/-]?(\d{4})\s'
-            reg_0 = r'\s(\d{4})[_/-]?(\d{1,2})[_/-]?(\d{1,2})\s'
-            dyear, dmonth, dday, dhour, dminute, dsecond, dmicro = (
-                now.year, 1, 1, 0, 0, 0, 0)
-            got = False
-
-            year, month, day = dyear, dmonth, dday
-            if re.search(reg_1, f" {date_value} "):
-                year, month, day = re.search(reg_1,
-                                             f" {date_value} ").groups()[::-1]
-                if int(month) in range(1, 13) and int(day) <= 31:
-                    got = True
-            if not got and re.search(reg_0, f" {date_value} "):
-                year, month, day = re.search(reg_0, f" {date_value} ").groups()
-                if int(month) in range(1, 13) and int(day) <= 31:
-                    got = True
-            if not got:
-                month_ref = {}
-                v = ""
-                for key, value in CustomDateTime.MONTH.items():
-                    value = value["value"]
-                    for s in value:
-                        v += s + "|"
-                        month_ref[s] = key
-                v = v[:-1]
-                reg = r"\s(?:(\d{1,2})[\s-]+)?(%s)[\s-]+(\d{2}|\d{4})\s" % v
-                if re.search(reg, f" {date_value} ", flags=re.I):
-                    day, month, year = re.search(reg,
-                                                 f" {date_value} ",
-                                                 flags=re.I).groups()
-                    if len(year) == 2:
-                        if "20" + year <= str(datetime.datetime.now().year):
-                            year = "20" + year
+            d_format = kwargs.get("d_format")
+            equivalent_str_parse_time = {
+                "%Y": r"(\d{4})", "%y": r"(\d{2})",
+                "%m": r"(\d{2})",
+                "%d": r"(\d{1,2})"
+            }
+            year, month, day = [None] * 3
+            dhour, dminute, dsecond, dmicro = [0] * 4
+            if d_format is not None:
+                if isinstance(d_format, str):
+                    d_format = [d_format]
+                got = False
+                for ff in d_format:
+                    orign_ff = ff
+                    if "%" not in ff:
+                        ff, time_ = CustomDateTime._parse_format(ff)
+                    temp = ff
+                    for k, v in equivalent_str_parse_time.items():
+                        temp = temp.replace(k, v)
+                    for car in "AaBb":
+                        temp = temp.replace("%" + car, r"(\w+)")
+                    for car in "wWjU":
+                        temp = temp.replace("%" + car, r"(\d+)")
+                    res = re.search("(" + temp + ")", date_value)
+                    if res:
+                        if "%" in orign_ff:
+                            try:
+                                temp = datetime.datetime.strptime(res.groups()[0], orign_ff)
+                                year, month, day = temp.year, temp.month, temp.day
+                                got = True
+                                break
+                            except (ValueError, Exception):
+                                pass
                         else:
-                            year = "19" + year
-                    month = month_ref[month.lower()]
+                            args = {k: v for k, v in zip(re.findall(r"%([Yymd])", ff), res.groups()[1:])}
+                            if "y" in args and "Y" not in args:
+                                # make some transformation here
+                                args["Y"] = args["y"]
+                            year, month, day = args.get("Y", str(now.year)), args.get("m", "01"), args.get("d", "01")
+                            if len(year) == 2:
+                                if "20" + year <= str(datetime.datetime.now().year):
+                                    year = "20" + year
+                                else:
+                                    year = "19" + year
+                            try:
+                                temp = datetime.date(int(year), int(month), int(day))
+                                year, month, day = temp.year, temp.month, temp.day
+                                got = True
+                                break
+                            except (ValueError, Exception):
+                                pass
+
+                if not got:
+                    if ignore_errors:
+                        return CustomDateTime(default)()
+                    raise ValueError("Bad value given for argument date_value: %s for formats: %s" %
+                                     (date_value, d_format))
+            if year is None:
+
+                date_value = date_value.strip()
+                reg = (r'^(\d{4})[_/-]?(\d{1,2})[_/-]?(\d{1,2})(?:[A-Z ]?'
+                       r'(\d{1,2})[:_](\d{1,2})(?:[:_](\d{1,2})(?:\.(\d+))?)?[A-Z]?)?$'
+                       )
+                res = re.search(reg, date_value)
+
+                if res:
                     got = True
-            try:
-                assert got, f"Date Parsing fail: format not supported ->" \
-                            f" {repr(date_value)}"
-            except AssertionError:
-                if ignore_errors:
-                    default = CustomDateTime._parse(default)
-                    day, month, year = default.day, default.month, default.year
-                else:
-                    raise ValueError(f"Date Parsing fail: format not supported ->"
-                                     f" {repr(date_value)}")
+                    year, month, day, hour, minute, second, micro = res.groups()
+                    if int(month) not in range(1, 13):
+                        got = False
+                    elif int(year) < 1900:
+                        got = False
+                    elif int(day) > 31:
+                        got = False
+                    if got:
+                        try:
+                            return datetime.datetime(year=int(year),
+                                                     month=int(month),
+                                                     day=int(day),
+                                                     hour=int(hour or 0),
+                                                     minute=int(minute or 0),
+                                                     second=int(second or 0),
+                                                     microsecond=int(micro or 0) * 1000
+                                                     )
+                        except ValueError:
+                            pass
+                # try to extract the date from string
+                reg_1 = r'\s(\d{1,2})[_/-]?(\d{1,2})[_/-]?(\d{4})\s'
+                reg_0 = r'\s(\d{4})[_/-]?(\d{1,2})[_/-]?(\d{1,2})\s'
+                dyear, dmonth, dday, dhour, dminute, dsecond, dmicro = (
+                    now.year, 1, 1, 0, 0, 0, 0)
+                got = False
+
+                year, month, day = dyear, dmonth, dday
+                if re.search(reg_1, f" {date_value} "):
+                    year, month, day = re.search(reg_1,
+                                                 f" {date_value} ").groups()[::-1]
+                    if int(month) in range(1, 13) and int(day) <= 31:
+                        got = True
+                if not got and re.search(reg_0, f" {date_value} "):
+                    year, month, day = re.search(reg_0, f" {date_value} ").groups()
+                    if int(month) in range(1, 13) and int(day) <= 31:
+                        got = True
+                if not got:
+                    month_ref = {}
+                    v = ""
+                    for key, value in CustomDateTime.MONTH.items():
+                        value = value["value"]
+                        for s in value:
+                            v += s + "|"
+                            month_ref[s] = key
+                    v = v[:-1]
+                    reg = r"\s(?:(\d{1,2})[\s-]+)?(%s)[\s-]+(\d{2}|\d{4})\s" % v
+                    if re.search(reg, f" {date_value} ", flags=re.I):
+                        day, month, year = re.search(reg,
+                                                     f" {date_value} ",
+                                                     flags=re.I).groups()
+                        if len(year) == 2:
+                            if "20" + year <= str(datetime.datetime.now().year):
+                                year = "20" + year
+                            else:
+                                year = "19" + year
+                        month = month_ref[month.lower()]
+                        got = True
+                try:
+                    assert got, f"Date Parsing fail: format not supported ->" \
+                                f" {repr(date_value)}"
+                except AssertionError:
+                    if ignore_errors:
+                        default = CustomDateTime._parse(default)
+                        day, month, year = default.day, default.month, default.year
+                    else:
+                        raise ValueError(f"Date Parsing fail: format not supported ->"
+                                         f" {repr(date_value)}")
             # try to extract hour
-            reg_hour = r"\s(\d{1,2})[:_](\d{1,2})(?:[:_](\d{1,2})(?:\.(\d+))?)?\s"
+            reg_hour = r"\s(\d{1,2})[:_](\d{1,2})(?:[:_](\d{1,2})(?:\.(\d+))?)?(\s+(am|pm))?\s"
             hour, minute, second, micro = 0, 0, 0, 0
-
-            if re.search(reg_hour, f" {date_value} "):
-                hour, minute, second, micro = \
-                    re.search(reg_hour, f" {date_value} ").groups()
-
-            date_value = datetime.datetime(year=int(year),
-                                           month=int(month),
-                                           day=int(day),
-                                           hour=int(hour or dhour),
-                                           minute=int(minute or dminute),
-                                           second=int(second or dsecond),
-                                           microsecond=int(micro or
-                                                           dmicro) * 1000
-                                           )
+            reg_hour = re.search(reg_hour, f" {date_value} ", flags=re.I)
+            if reg_hour:
+                hour, minute, second, micro, am_pm = reg_hour.groups()
+                hour = int(hour)
+                am_pm = str(am_pm).strip().lower()
+                if am_pm == "am" and hour >= 12:
+                    hour = hour - 12
+                elif am_pm == "pm" and hour < 12:
+                    hour = hour + 12
+            try:
+                date_value = datetime.datetime(year=int(year),
+                                               month=int(month),
+                                               day=int(day),
+                                               hour=int(hour or dhour),
+                                               minute=int(minute or dminute),
+                                               second=int(second or dsecond),
+                                               microsecond=int(micro or
+                                                               dmicro) * 1000
+                                               )
+            except ValueError as ex:
+                ex.args = ["Got bad value of date_value: %s. "
+                           "After parsing got year=%s, month=%s day=%s" % (date_value, year, month, day)]
+                raise ex
         return date_value
 
     # Ok
@@ -383,78 +538,18 @@ class CustomDateTime:
                        current_time.strftime("%H:%M" if time_ else "")
         elif intelligent and now() >= current_time and now.date.year > current_time.date().year:
             if CustomDateTime.DEFAULT_LANG == "fr":
-                return "Il y a longtemps" if now() >= current_time else "Dans longtemps"
+                return "Il y a longtemps" if now() >= current_time else "Dans un futur lointain"
             return "A long time ago" if now() >= current_time else "In a long time"
 
         if isinstance(d_format, str):
-            try:
-                res = current_time.strftime(d_format)
-                assert res != d_format
-                return res
-            except (ValueError, AssertionError):
-                pass
-            time_ = False
-            d_format = d_format.replace("%", "")
-            d_format = re.sub("yyyy", "%Y", d_format, flags=re.I)
-            d_format = re.sub("yy", "%y", d_format, flags=re.I)
-            d_format = re.sub("aaaa", "%Y", d_format, flags=re.I)
-            d_format = re.sub("aa", "%y", d_format, flags=re.I)
-
-            d_format = re.sub("mm", "%m", d_format, flags=re.I)
-            d_format = re.sub("dd", "%d", d_format, flags=re.I)
-            d_format = re.sub("jj", "%d", d_format, flags=re.I)
-            d_format = re.sub("yyyy", "%Y", d_format, flags=re.I)
-            d_format = re.sub("day", CustomDateTime._get_weekday(current_time), d_format, flags=re.I)
-            d_format = re.sub(r"d\.", CustomDateTime._get_weekday(current_time, abr=True), d_format, flags=re.I)
-            d_format = re.sub("jour", CustomDateTime._get_weekday(current_time), d_format, flags=re.I)
-            d_format = re.sub(r"j\.", CustomDateTime._get_weekday(current_time, abr=True), d_format, flags=re.I)
-            d_format = re.sub("month", CustomDateTime._get_month(current_time), d_format, flags=re.I)
-            d_format = re.sub("mois", CustomDateTime._get_month(current_time), d_format, flags=re.I)
-            d_format = re.sub(r"m\.", CustomDateTime._get_month(current_time, abr=True), d_format, flags=re.I)
-
-            last_car_is_percent = False
-            final_format = ""
-
-            # [A-Za-zÀ-ÖØ-öø-ÿ]
-            for car in re.split("(?<![A-Za-zÀ-ÖØ-öø-ÿ])(" + REGEX_FRENCH_CHARACTER + ")(?!" +
-                                REGEX_FRENCH_CHARACTER + ")", d_format):
-                if last_car_is_percent:
+            if "%" in d_format:
+                try:
+                    res = current_time.strftime(d_format)
+                    assert res != d_format
+                    return res
+                except (ValueError, AssertionError):
                     pass
-                else:
-                    car = {"d": "%d", "j": "%d", "a": "%Y", "y": "%Y", "m": "%m"}.get(car.lower(), car)
-                last_car_is_percent = False
-                if "%" in car:
-                    last_car_is_percent = True
-                final_format += car
-
-            d_format = final_format
-
-            # three
-            for x in permutations("ymd"):
-                d_format = re.sub(''.join(x), "%" + ("%".join([i if i != "y" else "Y" for i in x])), d_format,
-                                  flags=re.I)
-            for x in "ymd":
-                for xx in "ymd":
-                    if xx != x:
-                        for p in permutations(x + xx):
-                            d_format = re.sub(''.join(p), "%" + ("%".join([i if i != "y" else "Y" for i in p])),
-                                              d_format,
-                                              flags=re.I)
-
-            temp = d_format
-            res = re.search(r"%?h{1,2}(\s*[:-\\_ ]*\s*)?%?m{1,2}((\s*[:-\\_ ]*\s*?)%?s{1,2})?", temp, flags=re.I)
-            final_temp = ""
-            while res:
-                time_ = False
-                sepc = res.groups()
-                part = temp[:res.start()] + "%H" + sepc[0] + "%M"
-                if sepc[1] is not None:
-                    part += sepc[2] + "%S"
-                final_temp += part
-                temp = temp[res.end():]
-                res = re.search(r"%?h{1,2}(\s*[:-\\_ ]*\s*)?%?m{1,2}((\s*[:-\\_ ]*\s*?)%?s{1,2})?", temp, flags=re.I)
-
-            d_format = final_temp + temp
+            d_format, time_ = CustomDateTime._parse_format(d_format, current_time)
             if "-" in d_format:
                 sep = "-"
             elif "/" in d_format:
@@ -508,7 +603,7 @@ class CustomDateTime:
             sign = 1 if minus_or_add >= 0 else -1
             sec, micro = str(abs(minus_or_add)).split(".")
             micro = int(micro) * 1000
-            minus_or_add = f"{sign*sec}secs {sign*micro}microseconds"
+            minus_or_add = f"{sign * sec}secs {sign * micro}microseconds"
 
         if isinstance(minus_or_add, str):
             values = re.findall(
@@ -564,4 +659,4 @@ class CustomDateTime:
 
 
 if __name__ == '__main__':
-    print(CustomDateTime.from_calculation("now", "1 week"))
+    print(CustomDateTime("202301-01 2:10:10", d_format="%Y%m-%d"))
