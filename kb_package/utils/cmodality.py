@@ -183,7 +183,7 @@ class CModality:
             return lev1[1]
         return lev1[1] >= CModality.EQUALITY_THRESHOLD
 
-    def got_dataset_series_modalities(self, series: pandas.Series, key="search"):
+    def got_dataset_series_modalities(self, series: pandas.Series, key=None, *, max_fils=1000):
 
         def test_parse_city(d):
             if pandas.isnull(d):
@@ -194,16 +194,20 @@ class CModality:
             if isinstance(v, int) and not isinstance(v, self.__type):
                 return d, None
             if self.__type == dict:
-                if key:
-                    return d, v[key]
+                k = key or self._key
+                if isinstance(k, (list, tuple)):
+                    k = key[0]
+                if k:
+                    return d, v[k]
                 return d, v
             else:
                 return d, v
 
-        ss = series.unique()
-        ss = {d: v for d, v in tools.concurrent_execution(test_parse_city, len(ss), args=ss)}
+        unique = {}
+        for ss in tools.get_buffer(series.unique(), max_fils, vv=False):
+            unique.update({d: v for d, v in tools.concurrent_execution(test_parse_city, len(ss), args=ss)})
 
-        return series.apply(lambda d: ss[d])
+        return series.apply(lambda d: unique[d])
 
 
 if __name__ == '__main__':
