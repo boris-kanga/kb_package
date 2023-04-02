@@ -4,8 +4,6 @@ import re
 import datetime
 from itertools import permutations
 
-REGEX_FRENCH_CHARACTER = r"[A-Za-zÀ-ÖØ-öø-ÿ]"
-
 
 class CustomDateTime:
     SUPPORTED_FORMAT = {
@@ -214,8 +212,7 @@ class CustomDateTime:
         final_format = ""
 
         # one
-        for car in re.split("(?<![A-Za-zÀ-ÖØ-öø-ÿ])(" + REGEX_FRENCH_CHARACTER + ")(?!" +
-                            REGEX_FRENCH_CHARACTER + ")", d_format):
+        for car in re.split(r"\b(\w+)", d_format):
             if last_car_is_percent:
                 pass
             else:
@@ -432,7 +429,7 @@ class CustomDateTime:
                         raise ValueError(f"Date Parsing fail: format not supported ->"
                                          f" {repr(date_value)}")
             # try to extract hour
-            reg_hour = r"\s(\d{1,2})[:_](\d{1,2})(?:[:_](\d{1,2})(?:\.(\d+))?)?(\s+(am|pm))?\s"
+            reg_hour = r"\s(\d{1,2})[:_](\d{1,2})(?:[:_](\d{1,2})(?:\.(\d+))?)?(?:\s+(am|pm))?\s"
             hour, minute, second, micro = 0, 0, 0, 0
             reg_hour = re.search(reg_hour, f" {date_value} ", flags=re.I)
             if reg_hour:
@@ -659,4 +656,5 @@ class CustomDateTime:
 
 
 if __name__ == '__main__':
+    print(CustomDateTime.datetime_as_string("now", d_format="y--md"))
     print(CustomDateTime("202301-01 2:10:10", d_format="%Y%m-%d"))
