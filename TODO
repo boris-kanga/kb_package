@@ -2,3 +2,5 @@ EmailApi:
     Parse html code for detect all <img src=""> where the source is not on internet[local image] and transfrom them to base64 image
 
 ExcelFactory: def method that retrieve the evaluate value of a cell
+
+Create BIGDatasetFactory which maybe use spark or my custom logic to manipulate big data file.
