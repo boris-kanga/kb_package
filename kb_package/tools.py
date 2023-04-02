@@ -44,8 +44,8 @@ def force_delete_file(action, name, exc):
     os.remove(name)
 
 
-def concurrent_execution(func, thread_nb=100, wait_for=True, *, args=None, kwargs=None):
-    with thread.ThreadPoolExecutor() as executor:
+def concurrent_execution(func, thread_nb=100, wait_for=True, max_workers=os.cpu_count() + 4, *, args=None, kwargs=None):
+    with thread.ThreadPoolExecutor(max_workers=max_workers) as executor:
         data = []
         futures = []
         for index in range(thread_nb):
@@ -55,8 +55,10 @@ def concurrent_execution(func, thread_nb=100, wait_for=True, *, args=None, kwarg
                 _args = args(index)
             if callable(kwargs):
                 _kwargs = kwargs(index)
-            if isinstance(_args, str) or not BasicTypes.is_iterable(_args):
+            if isinstance(_args, str) or not getattr(_args, "__getitem__", None):
                 _args = (_args,)
+            elif getattr(_args, "__getitem__", None):
+                _args = (_args[index], )
 
             futures.append(executor.submit(func, *_args, **_kwargs))
         if not wait_for:
@@ -161,26 +163,32 @@ def get_no_filepath(filepath):
     return filepath
 
 
-def format_var_name(name, sep="_", accent=False, permit_char=None, default="var"):
+def format_var_name(name, sep="_", accent=False, permit_char=None, default="var", remove_accent=False,
+                    min_length_word=0):
     name = str(name)
     if accent:
         reg = r" \w\d_"
     else:
+        if remove_accent:
+            try:
+                name = remove_accent_from_text(name)
+            except (ValueError, Exception):
+                pass
         reg = r' a-zA-Z\d_'
     reg += re.escape("".join(permit_char or ""))
     reg = '[^' + reg + "]"
-    name = sep.join([p for p in re.sub(reg, '', name, flags=re.I).strip().split() if p])
-    name = "_".join([x for x in re.split(r"^(\d+)", name)[::-1] if x])
+    name = sep.join([p for p in re.sub(reg, ' ', name, flags=re.I).strip().split() if p and len(p) >= min_length_word])
+    name = sep.join([x for x in re.split(r"^(\d+)", name)[::-1] if x])
     if re.match(r"^\d*$", name):
         return default
-    return name[1:] if name.startswith(sep) else name
+    return name[1:] if name.startswith(sep) and len(sep) else name
 
 
 class Var(str):
     def __eq__(self, other):
         try:
-            x = format_var_name(self, default=self).lower()
-            xx = format_var_name(other, default=other).lower()
+            x = format_var_name(self, default=self, remove_accent=True).lower()
+            xx = format_var_name(other, default=other, remove_accent=True).lower()
         except AttributeError:
             return False
         return x == xx
@@ -547,218 +555,6 @@ class Cdict(dict):
             return
         value = Cdict(value, _Cdict__no_parse_string=True)
         self.__setitem__(key, value)
-
-
-class CModality:
-    EQUALITY_THRESHOLD = 0.8
-
-    def __init__(self, *args, values: dict = None, key=None):
-        values = (values or {})
-        assert isinstance(values, dict), "Bad values given"
-        modalities = []
-        if len(args):
-            if len(args) == 1 and isinstance(args[0], Iterable):
-                if isinstance(args[0][0], dict):
-                    # {modality|name:_, value:}
-                    values = {
-                        (u.get(key) or u.get("modality") or u.get("name")): u.get("value") or u
-                        for u in args[0]
-                    }
-                    args = [values.keys()]
-                elif isinstance(args[0][0], Iterable):
-                    # (modality, value1, value2, value3, ...)
-                    values = {
-                        u[0]: u[1:]
-                        for u in args[0]
-                    }
-                    args = [values.keys()]
-
-                modalities = [str(u) for u in args[0]]
-            else:
-                if isinstance(args[0], dict):
-                    # {modality|name:_, value:}
-                    values = {
-                        (u.get(key) or u.get("modality") or u.get("name")): u.get("value") or u
-                        for u in args
-                    }
-                    args = values.keys()
-                elif isinstance(args[0], Iterable):
-                    # (modality, value1, value2, value3, ...)
-                    values = {
-                        u[0]: u[1:]
-                        for u in args
-                    }
-                    args = values.keys()
-                modalities = [str(u) for u in args]
-
-        modalities.sort(key=lambda x: min([len(xx) for xx in x.split("|")]), reverse=True)
-        self._modalities = modalities
-
-        self._values = {}
-        self._values_no_space = {}
-        self._values_no_space_no_accent = {}
-        self._values_no_accent = {}
-        for k in self._modalities:
-            for kk in k.split("|"):
-                self._values[kk.lower()] = values.get(k) or values.get(k.lower()) or k
-                self._values_no_space[kk.lower().replace("-", "").replace(" ", "")] = self._values.get(kk.lower())
-                self._values_no_space_no_accent[
-                    remove_accent_from_text(kk.lower().replace("-", "").replace(" ", ""))] = self._values.get(
-                    kk.lower())
-                self._values_no_accent[remove_accent_from_text(kk.lower())] = self._values.get(kk.lower())
-        self._modalities = list(self._values.keys())
-
-    def _regex(self, remove_space=True, modal=None):
-        return re.compile(r"(?:.*?)?(" + "|".join(
-            [
-                remove_accent_from_text(str(d)
-                                        .replace("(", r"\(").replace(")", r"\)")
-                                        .replace("-", "").replace(" ", ""))
-                if remove_space
-                else remove_accent_from_text(str(d)
-                                             .replace("(", r"\(").replace(")", r"\)"))
-                for d in (modal or self._modalities)
-            ]) + r")(?:.*)?", flags=re.I | re.S)
-
-    def get(self, check, default=None, remove_space=True, priority=None):
-        check = remove_accent_from_text(check)
-        if remove_space:
-            check = str(check).replace("-", "").replace(" ", "")
-        if priority is None:
-            priority = [None]
-        if isinstance(priority, dict):
-            priority = [priority]
-        if BasicTypes.is_iterable(priority):
-            rest_modal = set(self._modalities)
-            # print(rest_modal)
-            i = 0
-            while True:
-                mod = None if i >= len(priority) else priority[i]
-                if isinstance(mod, dict):
-                    modal = [d for d in rest_modal
-                             if (isinstance(mod.get("value"), (list, tuple))
-                                 and self._values[d.lower()].get(mod.get("key")) in mod.get("value"))
-                             or self._values[d.lower()].get(mod.get("key")) == mod.get("value")]
-                else:
-                    modal = list(rest_modal)
-                res = self._regex(remove_space=remove_space, modal=modal).search(check)
-                # print("got res", res)
-                if res:
-                    # print(res.groups())
-                    check = res.groups()[0].lower()
-                    return (self._values.get(check) or self._values_no_accent.get(check)
-                            or self._values_no_space_no_accent.get(check))
-                if i == len(priority):
-                    break
-
-                i += 1
-                rest_modal = rest_modal.difference(modal)
-        check = check.lower()
-        candidates = []
-        all_modalities = sorted(self._modalities,
-                                key=lambda x: (INFINITE
-                                               if len(x) in [len(check) - 1, len(check), len(check) + 1]
-                                               else min([len(xx) for xx in x.split("|")])),
-                                reverse=True)
-        for modality in all_modalities:
-            m = modality.lower().strip()
-            if remove_space:
-                m = m.replace("-", "").replace(" ", "")
-            if (
-                    len(m) not in range(len(check) - 3, len(check) + 3) and
-                    not m.startswith(check) and
-                    not check.startswith(m)
-            ):
-                continue
-
-            if m.startswith(check):
-                return self._values.get(modality.lower())
-            candidates.append([m, modality])
-        res, score, best = CModality.best_similarity(check, candidates, remove_space=remove_space)
-        if score >= CModality.EQUALITY_THRESHOLD:
-
-            # print("got res: ", res, "->", check, "list: ", best)
-            pass
-        else:
-            res = None
-        return self._values.get(res.lower() if res is not None else None, default)
-
-    @staticmethod
-    def best_similarity(text, candidates, remove_space=True):
-
-        candidates = pandas.DataFrame(candidates, columns=["candidates", "modality"])
-
-        candidates.score = candidates.candidates.apply(lambda candidat: CModality.equal(
-            first=candidat, other=text, get=True, remove_space=remove_space))
-        best_score = candidates.score.max()
-        best = candidates.loc[candidates.score >= best_score, ["modality", "candidates"]]
-        # order by first characters
-        best = [[k, v] for k, v in zip(best.candidates, best.modality)]
-        best = sorted(best, key=lambda x: INFINITE if x[0][0] == text[0] else 0, reverse=True)
-        best = sorted(best, key=lambda x: INFINITE if len(x[1]) != len(text) else 0, reverse=True)
-        return ([(d[1], best_score, [p[1] for p in best]) for d in best] or [(None, 0, None)])[0]
-
-    @staticmethod
-    def equal(first, other, force=True, remove_space=False, get=False):
-        res = str(first) == other
-        if not force:
-            return res if not get else INFINITE
-        if res:
-            return True if not get else INFINITE
-        # prepare texts
-        # remove accents
-        this = remove_accent_from_text(str(first).lower()).strip()
-        other = remove_accent_from_text(str(other.lower())).strip()
-
-        if other == this:
-            return True if not get else INFINITE
-        # remove special characters
-        regex = re.compile(r"""[`~!@#$%^&*()_|+\-=?’;:'",.<>{}\[\]\\/\d]""", flags=re.I | re.S)
-        this = regex.sub("", this)
-        other = regex.sub("", other)
-
-        if other == this:
-            return True if not get else INFINITE
-        regex = re.compile("""[^\x00-\x7F]+""", flags=re.I | re.S)
-        this = regex.sub("", this)
-        other = regex.sub("", other)
-
-        if other == this:
-            return True if not get else INFINITE
-        # remove_space
-        if remove_space:
-            regex = re.compile(r"\s+", flags=re.I | re.S)
-            this = regex.sub("", this)
-            other = regex.sub("", other)
-        #
-        if other == this:
-            return True if not get else INFINITE
-        """
-        if len(this) > len(other):
-            min_size_temp = other
-            max_size_temp = this
-        else:
-            min_size_temp = this
-            max_size_temp = other
-        """
-        lev1 = lev_calculate(other, this)
-        if lev1[1] >= CModality.EQUALITY_THRESHOLD:
-            # print(this, other, lev1)
-            pass
-        if get:
-            return lev1[1]
-        return lev1[1] >= CModality.EQUALITY_THRESHOLD
-
-
-def lev_calculate(str1, str2):
-    dist, r = 0, 0
-    try:
-        import Levenshtein as lev
-        dist = lev.distance(str1, str2)
-        r = lev.ratio(str1, str2)
-    except ImportError:
-        pass
-    return dist, r
 
 
 class ConsoleFormat:
