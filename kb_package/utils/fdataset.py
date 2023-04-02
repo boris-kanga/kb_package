@@ -822,7 +822,7 @@ class QueryTransformer(ast.NodeTransformer):
             query = re.sub(r"(@\d+)", eq_col, query)
             # replace = by ==
 
-            query = re.sub(r"(?<![=><!])=(?![=])", "==", query, flags=re.I)
+            query = re.sub(r"(?<![=><!])=(?!=)", "==", query, flags=re.I)
             # replace <> by !=
             query = query.replace("<>", "!=")
 
