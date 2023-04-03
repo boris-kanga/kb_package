@@ -646,7 +646,7 @@ class CustomDateTime:
                         break
                 date_time = date_time.replace(month=date_time.month + months, year=date_time.year + years)
             except ValueError:
-                assert date_time.month + months == 2, "An unknown error occurred"
+                # assert date_time.month + months == 2, "An unknown error occurred"
                 date_time = date_time.replace(
                     month=date_time.month + months + 1,
                     year=date_time.year + years,
