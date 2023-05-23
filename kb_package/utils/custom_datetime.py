@@ -12,7 +12,8 @@ class CustomDateTime:
     SUPPORTED_LANG = ("fr", "en")
     MONTH = {
         1: {"value": ["janvier", "january", "janv", "jan", "ja"], "abr": ("janv", "jan")},
-        2: {"value": ["février", "february", "fév", "feb", "fevrier", "fev", "fe"], "abr": ("fév", "feb")},
+        2: {"value": ["février", "february", "févr", "fevr", "fév", "feb", "fevrier", "fev", "fe"],
+            "abr": ("févr", "feb")},
         3: {"value": ["mars", "march", "mar"], "abr": ("mars", "march")},
         4: {"value": ["avril", "april", "avr", "apr", "ap", "av"], "abr": ("avr", "apr")},
         5: {"value": ["mai", "may"], "abr": ("mai", "may")},
@@ -212,7 +213,7 @@ class CustomDateTime:
         final_format = ""
 
         # one
-        for car in re.split(r"\b(\w+)", d_format):
+        for car in re.split("(?<![A-Za-zÀ-ÖØ-öø-ÿ])([A-Za-zÀ-ÖØ-öø-ÿ])(?![A-Za-zÀ-ÖØ-öø-ÿ])", d_format):
             if last_car_is_percent:
                 pass
             else:
@@ -467,6 +468,10 @@ class CustomDateTime:
                                        d_format=d_format, intelligent=intelligent,
                                        approximative=approximative)
 
+    def get_month(self):
+        last_month = CustomDateTime(str(self.to_string("y-m") + "-01")) - 1
+        return type("CustomMonth", (), {"end": lambda: last_month, "nb_day": int(last_month.to_string("dd"))})
+
     # Ok
     @staticmethod
     def datetime_as_string(
@@ -497,9 +502,11 @@ class CustomDateTime:
             _months = _months[1:]
         if intelligent and len(_months) <= 12:
             if CustomDateTime.DEFAULT_LANG == "fr":
+                t = " à " if time_ else ""
                 _msg_start = "Il y a " if now() >= current_time else "Dans "
                 _msg_end = ""
-                hier_text = "Hier à " if now() >= current_time else "Demain à "
+                hier_text = "Hier" + t if now() >= current_time else "Demain" + t
+                print(hier_text, current_time, now(), now() >= current_time)
             else:
                 _msg_start = "" if now() >= current_time else "In "
                 _msg_end = "ago" if now() >= current_time else ""
@@ -517,7 +524,8 @@ class CustomDateTime:
                     return _msg_start + str(dts) + "s " + _msg_end
                 else:
                     return "Ce jour" if CustomDateTime.DEFAULT_LANG == "fr" else "This day"
-            elif now.date == CustomDateTime.from_calculation(current_time, "+1 day").date:
+            elif (now.date == CustomDateTime.from_calculation(current_time, "+1 day").date or
+                  now.date == CustomDateTime.from_calculation(current_time, "-1 day").date):
                 return hier_text + \
                        current_time.strftime("%H:%M" if time_ else "")
             elif not len(_months) and CustomDateTime.DEFAULT_LANG == "fr":

@@ -5,8 +5,14 @@ Use for run easily mysql requests
 """
 
 import sqlite3
-from kb_package.database.basedb import BaseDB
-from kb_package.tools import Cdict
+
+from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
+    SLEEP_IF_ERROR as SLEEP
+from kb_package.tools import Cdict, many_try
+
+MAX_EXECUTE_TRY = MAX
+ERROR_TO_IGNORE = ERROR
+SLEEP_IF_ERROR = SLEEP
 
 
 class SQLiteDB(BaseDB):
@@ -16,6 +22,7 @@ class SQLiteDB(BaseDB):
         return self.__class__.__name__
 
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, error_got="database is locked", sleep_time=SLEEP_IF_ERROR)
     def connect(file_name="database.db", **kwargs) -> sqlite3.Connection:
         """
         Making the connexion to the mysql database
@@ -36,12 +43,13 @@ class SQLiteDB(BaseDB):
             table_name = " FROM " + str(table_name)
         else:
             table_name = ""
-        return self._execute(cursor, "select last_insert_rowid()"+table_name)
+        return self._execute(cursor, "select last_insert_rowid()" + table_name)
 
     def _cursor(self):
         return self.db_object.cursor()
 
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, error_got="database is locked", sleep_time=SLEEP_IF_ERROR)
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         """
         use to make preparing requests
@@ -102,7 +110,7 @@ class SQLiteDB(BaseDB):
             # print(params, script)
             if ignore_error:
                 return None
-            raise Exception(ex)
+            raise ex
 
     @staticmethod
     def _get_cursor_description(cursor):

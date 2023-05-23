@@ -11,8 +11,13 @@ import os
 
 import cx_Oracle
 
-from kb_package.database.basedb import BaseDB
-from kb_package.tools import Cdict
+from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
+    SLEEP_IF_ERROR as SLEEP
+from kb_package.tools import Cdict, many_try
+
+MAX_EXECUTE_TRY = MAX
+ERROR_TO_IGNORE = ERROR
+SLEEP_IF_ERROR = SLEEP
 
 
 class OracleDB(BaseDB):
@@ -29,6 +34,7 @@ class OracleDB(BaseDB):
             return False
 
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def connect(host="localhost",
                 user="root", password=None,
                 port=DEFAULT_PORT,
@@ -38,6 +44,7 @@ class OracleDB(BaseDB):
             if os.environ.get("ORACLE_INSTANT_CLIENT_PATH"):
                 try:
                     cx_Oracle.init_oracle_client(lib_dir=os.environ.get("ORACLE_INSTANT_CLIENT_PATH"))
+                    # this can raise: cx_Oracle.ProgrammingError if already initialized
                 except (Exception, TypeError):
                     pass
             dsn = cx_Oracle.makedsn(host, port, service_name=service_name)
@@ -61,6 +68,7 @@ class OracleDB(BaseDB):
         return Cdict(columns=[col[0] for col in cursor.description or []])
 
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         OracleDB.LAST_SQL_CODE_RUN = script
         if method == "many":
@@ -79,7 +87,7 @@ class OracleDB(BaseDB):
             if ignore_error:
                 return None
 
-            raise Exception(ex)
+            raise ex
 
     def _get_table_schema(self, table_name):
         """

@@ -12,9 +12,14 @@ import traceback
 import pymongo
 
 from kb_package.database.where_clause import WhereClause
-from kb_package.database.basedb import BaseDB
+from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
+    SLEEP_IF_ERROR as SLEEP
 from kb_package.tools import INFINITE, Cdict
 from kb_package import tools
+
+MAX_EXECUTE_TRY = MAX
+ERROR_TO_IGNORE = ERROR
+SLEEP_IF_ERROR = SLEEP
 
 
 class MongoDB(BaseDB):
@@ -37,6 +42,7 @@ class MongoDB(BaseDB):
 
     # implementation of abstracts methods
     @staticmethod
+    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
             port=DEFAULT_PORT, **kwargs
@@ -86,6 +92,7 @@ class MongoDB(BaseDB):
         return Cdict(columns=[d for d in cursor[0]])
 
     @staticmethod
+    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def _execute(cursor, script, params=None, ignore_error=False, **kwargs):
         """
         use to make preparing requests
@@ -108,7 +115,7 @@ class MongoDB(BaseDB):
         except Exception as ex:
             if ignore_error:
                 return None
-            raise Exception(ex)
+            raise ex
 
     def create_table(self, arg: str, table_name=None, auto_increment_field=False, auto_increment_field_name=None,
                      **kwargs):

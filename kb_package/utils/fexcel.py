@@ -3,7 +3,9 @@ import os.path
 import pathlib
 import re
 
+from openpyxl.cell import Cell
 import pandas
+from copy import copy
 
 from openpyxl import load_workbook, Workbook
 from openpyxl.worksheet.table import Table
@@ -13,7 +15,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 from kb_package.utils.fdataset import DatasetFactory
-from kb_package.tools import get_no_filepath, Cdict, replace_quoted_text
+from kb_package.tools import get_no_filepath, Cdict, replace_quoted_text, CTemporaryFile
 
 
 class ExcelFactory:
@@ -24,7 +26,8 @@ class ExcelFactory:
         self._kwargs = kwargs
         self._got_modification = True
 
-        if isinstance(arg, DatasetFactory):
+        if hasattr(arg, "dataset"):
+            # DatasetFactory object
             arg = arg.dataset
         if isinstance(arg, (str, pathlib.Path)):
             self._path = str(arg)
@@ -45,6 +48,9 @@ class ExcelFactory:
         self._tables_ref = []
         self._pivots_ref = []
         self._load_context()
+
+        self._cache_copy = None
+        self._cm_force_saving = True
 
     def __load(self, path=None, **kwargs):
         _kwargs = self._kwargs.copy()
@@ -87,10 +93,10 @@ class ExcelFactory:
             min_row=ref.start.line, max_row=ref.start.line,
             min_col=ref.start.col_id, max_col=ref.end.col_id,
             values_only=True))[0]
-        dataset = DatasetFactory([
+        dataset = pandas.DataFrame([
             list(d) for d in sheet.iter_rows(min_row=ref.start.line + 1, max_row=ref.end.line,
                                              min_col=ref.start.col_id, max_col=ref.end.col_id, values_only=True)
-        ], columns=columns).dataset
+        ], columns=columns)
 
         return dataset
 
@@ -126,12 +132,18 @@ class ExcelFactory:
             return kwargs["default"]
         raise ValueError("Table %s don't exists" % name)
 
+    def __call__(self, *args, **kwargs):
+        if (len(args) and not args[0]) or ("save" in kwargs and not kwargs["save"]):
+            self._cm_force_saving = False
+        return self
+
     def __enter__(self):
         return self._workbook
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._load_context()
-        self.save(force=True)
+        self.save(force=self._cm_force_saving)
+        self._cm_force_saving = True
 
     def sheet(self, name, create_if_not_exists=True, sheet_index=None) -> Worksheet:
         if create_if_not_exists and name not in self._workbook.sheetnames:
@@ -146,7 +158,7 @@ class ExcelFactory:
         self._got_modification = False
         return path
 
-    def clear_content(self, ref, sheet=None):
+    def clear_content(self, ref, sheet=None, format_=True):
         ref, sheet = self._get_ref_sheet_from(ref, sheet)
         _ref = ref.start.address
         if "end" in ref:
@@ -157,6 +169,7 @@ class ExcelFactory:
         for row in sheet[_ref]:
             for cell in row:
                 cell.value = None
+                cell.style = 'Normal'
 
     @staticmethod
     def _parse_ref(ref: str):
@@ -174,9 +187,9 @@ class ExcelFactory:
         if sheet is not None:
             res["sheet"] = sheet
         for ref, part in zip(ref.upper().split(":"), ["start", "end"]):
-            _, col, line, _ = re.split(r"^([A-Z]+)(\d+)$", ref)
-            res[part] = Cdict({"col": col, "line": int(line), "address": ref,
-                               "col_id": column_index_from_string(col)})
+            _, col, line, _ = re.split(r"^([A-Z]+)?(\d+)?$", ref)
+            res[part] = Cdict({"col": col, "line": None if line is None else int(line), "address": ref,
+                               "col_id": None if col is None else column_index_from_string(col)})
 
         return res
 
@@ -192,7 +205,7 @@ class ExcelFactory:
             sheet = self.sheet(sheet)
         table: Table = sheet.tables[table_name]
 
-        data = DatasetFactory(data, column=table.column_names).dataset
+        data = DatasetFactory(data, columns=table.column_names).dataset
         ref = self._parse_ref(table.ref)
         current_line = ref.end.line + 1
         for row in dataframe_to_rows(data, index=False, header=False):
@@ -204,6 +217,72 @@ class ExcelFactory:
         ref = ref.start.col + str(ref.start.line) + ":" + ref.end.col + str(current_line - 1)
         table.ref = ref
         self._got_modification = True
+
+    def copy(self, ref):
+        ref = self._parse_ref(ref)
+        if ref.get("sheet"):
+            sheet = self.sheet(ref.get("sheet"))
+        else:
+            sheet = self._workbook.active
+
+        self._cache_copy = Cdict()
+        if not ref.get("end"):
+            self._cache_copy.type = "cell"
+            self._cache_copy.ref = {"sheet": sheet.title, "cell": ref.start}
+        else:
+            self._cache_copy.type = "range"
+            ref.start.line = ref.start.line or 1
+            ref.end.line = ref.end.line or sheet.max_row
+
+            ref.start.col_id = ref.start.col_id or 1
+            ref.end.col_id = ref.end.col_id or sheet.max_column
+
+            ref.start.col = column_index_from_string(ref.start.col_id)
+            ref.end.col = column_index_from_string(ref.end.col_id)
+            self._cache_copy.ref = {"sheet": sheet.title, "range": ref}
+
+    @staticmethod
+    def address(cell: Cell):
+        return "'" + cell.parent.title + "'!" + cell.column_letter + str(cell.row)
+
+    @staticmethod
+    def clone(cell: Cell, to_cell: Cell, format_=True, data=True, formula_rc=True, consider_format=()):
+        if not consider_format:
+            consider_format = ("fill", "alignment", "border", "font", "number_format", "protection")
+        if data:
+            # prise en compte de formula_rc
+            to_cell.value = cell.value
+        if format_:
+            for s in consider_format:
+                setattr(to_cell, s, copy(getattr(cell, s)))
+
+    def paste_to(self, ref, format_=True, data=True, ignore_error=True, consider_format=()):
+        if not self._cache_copy:
+            return
+        ref = self._parse_ref(ref)
+        cell = ref.start
+        if ref.get("sheet"):
+            sheet = self.sheet(ref.get("sheet"))
+        else:
+            sheet = self._workbook.active
+
+        if self._cache_copy.type == "cell":
+            cell = sheet.cell(row=cell.line, column=cell.col_id)
+            to_cell = self.sheet(self._cache_copy.sheet).cell(self._cache_copy.cell.line,
+                                                              self._cache_copy.cell.col_id)
+            self.clone(cell, to_cell, format_=format_, data=data, consider_format=consider_format)
+        else:
+            # range
+            start = self._cache_copy.range.start
+            end = self._cache_copy.range.start.end
+
+            to_sheet = self.sheet(self._cache_copy.sheet)
+            for index_col, col_id in enumerate(range(start.col_id, end.col_id)):
+                for index_row, line in enumerate(range(start.line, end.line)):
+                    cell = sheet.cell(row=cell.line+index_col, column=cell.col_id+index_row)
+                    to_cell = to_sheet.cell(line, col_id)
+
+                    self.clone(cell, to_cell, format_=format_, data=data, consider_format=consider_format)
 
     def create_table(self, data, ref="A1", sheet=None, table_name=None, header=True,
                      cols_name=None, replace_if_exists=2):
@@ -332,21 +411,71 @@ class ExcelFactory:
         xlapp.Application.Quit()
         self.__load()
 
-    def refresh_all(self, debug=False):
-        path = self.save(force=True)
+    def add_sparklines(self, refs, export_name=None, debug=False):
+        """
+            refs: list or dict.
+                if dict: -> {"data_range": str (some sheets range), "destination": Cell or str}
+                if list: [dict, ...] where dict like what define top
+        """
         import win32com.client as win32
         xlapp = win32.gencache.EnsureDispatch("Excel.Application")  # instantiate excel app
         if debug:
             xlapp.Visible = True
-        wb = xlapp.Workbooks.Open(path)
+        if isinstance(refs, dict):
+            refs = [refs]
+        if not len(refs):
+            return
 
-        wb.RefreshAll()
-        print("Saving ...")
-        wb.Save()
-        print("Finished")
-        xlapp.Application.Quit()
-        self.__load()
+        with CTemporaryFile(ext=".xlsx") as temp_file:
+            temp_file.close()
+            path = self.save(path=temp_file.name, force=True)
+            wb = xlapp.Workbooks.Open(path)
+            xlmodule = wb.VBProject.VBComponents.Add(1)
+            xlmodule.Name = "kb_Module_temp"
+            vba_code = "sub create_sparkline_%(index)s()\n" \
+                       'sheets("%(sheet)s").Range("%(destination)s").SparklineGroups.Add Type:=xlSparkLine, ' \
+                       'SourceData:="%(data_range)s"\n' \
+                       'end sub'
+
+            for index, ref in enumerate(refs):
+
+                ref["index"] = index
+                if isinstance(ref["destination"], Cell):
+                    destination = ExcelFactory.address(ref["destination"])
+                else:
+                    destination = ref["destination"]
+                destination = self._parse_ref(destination)
+
+                ref["sheet"] = destination.get("sheet") or ref.get("sheet") or self._workbook.active.title
+                ref["destination"] = destination.start.address
+                print(vba_code % ref)
+                xlmodule.CodeModule.AddFromString(vba_code % ref)
+                xlapp.Application.Run(wb.Name + "!create_sparkline_%s" % (index,))
+
+            wb.Save()
+            path = os.path.realpath(export_name or self._path)
+            wb.Close(True, path)
+            return path
+
+    def refresh_all(self, debug=False):
+        import win32com.client as win32
+        xlapp = win32.gencache.EnsureDispatch("Excel.Application")  # instantiate excel app
+        if debug:
+            xlapp.Visible = True
+        with CTemporaryFile(ext=".xlsx") as temp_file:
+            temp_file.close()
+            path = self.save(path=temp_file.name, force=True)
+            wb = xlapp.Workbooks.Open(path)
+            print(wb)
+            wb.RefreshAll()
+            print("Saving ...")
+            wb.Save()
+            wb.Close(True)
+            print("Finished")
+            # xlapp.Application.Quit()
+            self.__load(path)
 
 
 if __name__ == '__main__':
-    excel = ExcelFactory()
+    excel = ExcelFactory(r"C:\Users\FBYZ6263\Downloads\track_swap.xlsx")
+    print(excel.sheet("Report").title)

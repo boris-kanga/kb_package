@@ -7,11 +7,18 @@ Required psycopg2~=2.9.3
 """
 
 import psycopg2
-from kb_package.tools import Cdict
-from kb_package.database.basedb import BaseDB
+from kb_package.tools import Cdict, many_try
+from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
+    SLEEP_IF_ERROR as SLEEP
+
+MAX_EXECUTE_TRY = MAX
+ERROR_TO_IGNORE = ERROR
+SLEEP_IF_ERROR = SLEEP
 
 
 class PostgresDB(BaseDB):
+    DEFAULT_PORT = 5432
+
     @property
     def _get_name(self):
         return self.__class__.__name__
@@ -22,9 +29,8 @@ class PostgresDB(BaseDB):
         except (AttributeError, psycopg2.Error, Exception):
             return False
 
-    DEFAULT_PORT = 5432
-
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def connect(
         host="127.0.0.1", user="root", password="", db_name=None,
             port=DEFAULT_PORT, **kwargs):
@@ -57,6 +63,7 @@ class PostgresDB(BaseDB):
         return Cdict(columns=[desc[0] for desc in cursor.description or []])
 
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def _execute(cursor, script, params=None, ignore_error=False, connexion=None, **kwargs):
         """
         use to make preparing requests
@@ -80,7 +87,7 @@ class PostgresDB(BaseDB):
             connexion.rollback()
             if ignore_error:
                 return None
-            raise Exception(ex)
+            raise ex
 
     @staticmethod
     def get_add_increment_field_code(field_name="id"):

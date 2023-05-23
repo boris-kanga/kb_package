@@ -3,7 +3,7 @@
 All generals customs tools we develop.
 they can be use in all the project
 """
-
+import inspect
 import json
 import logging
 import os
@@ -17,14 +17,19 @@ import zipfile
 from typing import Union
 import stat as stat_package
 import shutil
+import tempfile
+import keyword
 
-import pandas
 import unicodedata
-from collections.abc import Iterable
 
 import concurrent.futures as thread
 
 from kb_package.utils.custom_datetime import CustomDateTime
+
+try:
+    import Levenshtein as leven
+except ImportError:
+    leven = type("Levenshtein", (), {"distance": lambda x, y: 0, "ratio": lambda x, y: 0})
 
 
 def add_query_string_to_url(url, params):
@@ -51,14 +56,16 @@ def concurrent_execution(func, thread_nb=100, wait_for=True, max_workers=os.cpu_
         for index in range(thread_nb):
             _kwargs = kwargs or {}
             _args = args
-            if callable(args):
-                _args = args(index)
             if callable(kwargs):
                 _kwargs = kwargs(index)
-            if isinstance(_args, str) or not getattr(_args, "__getitem__", None):
-                _args = (_args,)
-            elif getattr(_args, "__getitem__", None):
-                _args = (_args[index], )
+            if callable(args):
+                _args = args(index)
+                if not BasicTypes.is_iterable(_args):
+                    _args = (_args,)
+            elif isinstance(args, str) or not getattr(args, "__getitem__", None):
+                _args = (args,)
+            elif getattr(args, "__getitem__", None):
+                _args = (args[index], )
 
             futures.append(executor.submit(func, *_args, **_kwargs))
         if not wait_for:
@@ -163,9 +170,18 @@ def get_no_filepath(filepath):
     return filepath
 
 
+def lev_calculate(str1, str2):
+    dist = leven.distance(str1, str2)
+    r = leven.ratio(str1, str2)
+    return dist, r
+
+
 def format_var_name(name, sep="_", accent=False, permit_char=None, default="var", remove_accent=False,
-                    min_length_word=0):
-    name = str(name)
+                    min_length_word=1, no_case=False, blacklist=keyword.kwlist):
+    origin = str(name).strip()
+    name = origin
+    if no_case:
+        name = name.lower()
     if accent:
         reg = r" \w\d_"
     else:
@@ -174,24 +190,63 @@ def format_var_name(name, sep="_", accent=False, permit_char=None, default="var"
                 name = remove_accent_from_text(name)
             except (ValueError, Exception):
                 pass
-        reg = r' a-zA-Z\d_'
+        reg = r' a-zA-Z\d'
     reg += re.escape("".join(permit_char or ""))
     reg = '[^' + reg + "]"
     name = sep.join([p for p in re.sub(reg, ' ', name, flags=re.I).strip().split() if p and len(p) >= min_length_word])
     name = sep.join([x for x in re.split(r"^(\d+)", name)[::-1] if x])
     if re.match(r"^\d*$", name):
-        return default
-    return name[1:] if name.startswith(sep) and len(sep) else name
+        return str(default)
+
+    if blacklist:
+        if no_case:
+            blacklist = [str(d).lower() for d in blacklist]
+        while name in blacklist:
+            name += "_"
+    return name
 
 
 class Var(str):
+    def __new__(cls, *args, **kwargs):
+        default = kwargs.pop("default", None)
+
+        remove_accent = kwargs.pop("remove_accent", True)
+        ratio = kwargs.pop("eq_ratio", 0.8)
+        dist = kwargs.pop("eq_dist", 1)
+        force = kwargs.pop("force", False)
+        no_case = kwargs.pop("no_case", True)
+
+        self = str.__new__(cls, *args, **kwargs)
+
+        self._force = force
+        self._ratio = ratio
+        self._dist = dist
+        self._remove_accent = remove_accent
+        self._no_case = no_case
+
+        # self = cls(*args, **kwargs)
+        self._good = format_var_name(self, default=default or self, remove_accent=remove_accent).strip("_")
+
+        if self._no_case:
+            self._good = self._good.lower()
+        return self
+
     def __eq__(self, other):
         try:
-            x = format_var_name(self, default=self, remove_accent=True).lower()
-            xx = format_var_name(other, default=other, remove_accent=True).lower()
+            if not isinstance(other, Var):
+                other = format_var_name(other, default=other, remove_accent=self._remove_accent).strip("_")
+                if self._no_case:
+                    other = other.lower()
         except AttributeError:
-            return False
-        return x == xx
+            return self == other
+        res = self._good == other
+        if res or not self._force:
+            return res
+        dist, ratio = lev_calculate(self._good, other)
+        return dist >= (self._dist or 0) and ratio >= self._ratio
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def __hash__(self):
         return super().__hash__()
@@ -378,26 +433,37 @@ def timer(logger_name=None, verbose=False):
     return inner
 
 
-def many_try(max_try=3, verbose=True, sleep_time=None, logger_name=None):
+def many_try(max_try=3, verbose=True, sleep_time=None, logger_name=None, error_got=None):
     def inner(func):
+        log = lambda *args, **kwargs: print(*args, **kwargs)
+        if verbose:
+            if logger_name is not None:
+                log = lambda *args, **kwargs: logging.getLogger(logger_name).warning(*args, **kwargs)
+            else:
+                log = lambda *args, **kwargs: print(*args, ":", kwargs)
+
         def run(*args, **kwargs):
             for index_try in range(max_try):
                 try:
                     data = func(*args, **kwargs)
                     return data
                 except Exception as ex:
-                    if verbose or index_try == max_try - 1:
-                        if logger_name:
-                            logging.getLogger(logger_name).warning(
-                                f"Got error: {ex}  when try to execute :{func.__name__}"
-                            )
+                    if error_got is not None:
+                        if isinstance(error_got, str):
+                            if str(ex) == error_got:
+                                pass
+                            else:
+                                index_try = max_try
+                        elif inspect.isclass(error_got) and isinstance(ex, error_got):
+                            pass
                         else:
-                            print("Got error:  when try to execute :", func.__qualname__)
-                        if index_try == max_try - 1:
-                            raise Exception(ex)
+                            index_try = max_try
+                    if index_try < max_try - 1:
+                        log("ignore error %s" % ex)
                         if isinstance(sleep_time, (float, int)):
                             time.sleep(sleep_time)
-                        print(traceback.format_exc())
+                    else:
+                        raise ex
 
         return run
 
@@ -603,18 +669,18 @@ class ConsoleFormat:
         return texte
 
     @staticmethod
-    def print_table(table):
-        cell_left_top = "┌"
-        cell_right_top = "┐"
-        cell_left_bottom = "└"
-        cell_right_bottom = "┘"
-        cell_h_join_top = "┬"
-        cell_h_join_bottom = "┴"
-        cell_vertical_joint_left = "├"
-        cell_t_joint = "┼"
-        cell_vertical_joint_right = "┤"
-        cell_h = "─"
-        cell_v = "│"
+    def print_table(table, car=None):
+        cell_left_top = car or "┌"
+        cell_right_top = car or "┐"
+        cell_left_bottom = car or "└"
+        cell_right_bottom = car or "┘"
+        cell_h_join_top = car or "┬"
+        cell_h_join_bottom = car or "┴"
+        cell_vertical_joint_left = car or "├"
+        cell_t_joint = car or "┼"
+        cell_vertical_joint_right = car or "┤"
+        cell_h = car or "─"
+        cell_v = car or "│"
 
         if hasattr(table, "shape"):
             size = table.shape[0]
@@ -674,11 +740,9 @@ class ConsoleFormat:
     def log(text):
         if not ConsoleFormat.INIT_YET:
             ConsoleFormat.init()
-        text = " " + text + " "
-        blank = r"([^A-Za-zÀ-ÖØ-öø-ÿ\d])"
-        text = re.sub(blank + r"(errors?|erreurs?|échecs?|echec)" + blank,
+        text = re.sub(r"\b(errors?|erreurs?|échecs?|echec)\b",
                       r"\1\033[38;2;255;0;0m\2\033[0m\3", text, flags=re.I | re.S)
-        text = re.sub(blank + r"(ok|succès|d'accord|succes|success|successful)" + blank,
+        text = re.sub(r"\b(ok|succès|d'accord|succes|success|successful)\b",
                       r"\1\033[38;2;0;255;0m\2\033[0m\3", text, flags=re.I | re.S)
         return text[1: -1]
 
@@ -855,9 +919,10 @@ def _get_new_kb_text(string, root="kb_vars"):
     """
     i = 0
     temp = root
+    part1, part2 = root[:int(len(root)/2)], root[int(len(root)/2):]
     while temp in string:
         i += 1
-        temp = "var_" + str(i) + "_" + root
+        temp = part1 + "_" + str(i) + "_" + part2
     return temp
 
 
@@ -1009,6 +1074,51 @@ def extract_structure(text, symbol_start, symbol_end=None, maximum_deep=INFINITE
             else:
                 _structures[index + "__"] = _structure
     return epsilon, _structures
+
+
+class CTemporaryFile:
+    def __init__(self, mode='wb', destination_path=None, ext=None, delete=True):
+        self._mode = mode
+        self._delete = delete
+        self._name = None
+        if isinstance(ext, str):
+            if not ext.startswith("."):
+                ext = "." + ext
+        else:
+            ext = ""
+        self._ext = ext
+        if destination_path:
+            self._name = str(destination_path).replace("\\", "/")
+            while self._name.endswith("/"):
+                self._name = self._name[:-1]
+            self._name = os.path.realpath(self._name)
+            logging.warning("Make sure that it's safe to use this file like temp file: " + self._name)
+
+    def __enter__(self):
+        # Generate a random temporary file name
+        if self._name:
+            if os.path.isdir(self._name):
+                self._name = os.path.join(self._name, os.urandom(24).hex())
+        file_name = self._name or os.path.join(tempfile.gettempdir(), os.urandom(24).hex() + self._ext)
+        # Ensure the file is created
+        open(file_name, "x").close()
+        # Open the file in the given mode
+        self._tempFile = open(file_name, self._mode)
+        return self._tempFile
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self._tempFile.close()
+            if self._delete:
+                os.remove(self._tempFile.name)
+        except (OSError, FileNotFoundError, FileExistsError):
+            pass
+        finally:
+            try:
+                if self._delete:
+                    os.remove(self._tempFile.name)
+            except FileNotFoundError:
+                pass
 
 
 if __name__ == "__main__":

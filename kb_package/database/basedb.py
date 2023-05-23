@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import csv
 import re
 import traceback
 import typing
@@ -40,6 +41,11 @@ def _can_be_datetime_field(series, date_format=()):
         return "NO"
 
 
+ERROR_TO_IGNORE = None
+MAX_EXECUTE_TRY = 1
+SLEEP_IF_ERROR = 0
+
+
 class BaseDB(abc.ABC):
     MYSQL_DEFAULT_PORT = 3306
     DEFAULT_PORT = None
@@ -48,8 +54,9 @@ class BaseDB(abc.ABC):
     LAST_SQL_CODE_RUN = None
     MAX_BUFFER_INSERTING_SIZE = 100000
     LAST_REQUEST_COLUMNS = None
+    LAST_RUN_SCRIPT_ERROR = None
 
-    MAX_PARAMETERS = 1000
+    MAX_PARAMETERS = 1200
 
     def __init__(self, uri=None, **kwargs):
         """
@@ -130,6 +137,7 @@ class BaseDB(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
+    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
             port=DEFAULT_PORT, file_name=None, **kwargs
@@ -228,8 +236,8 @@ class BaseDB(abc.ABC):
         script = "INSERT INTO " + str(table_name) + \
                  " ( " + ",".join(part_vars) + \
                  ") VALUES ( " + ", ".join(xx) + " ) "
-        print("Inserting ...")
         if verbose:
+            print("Inserting ...")
             tools.ConsoleFormat.progress(0)
         for t, buffer in tools.get_buffer(dataset, max_buffer=self.MAX_BUFFER_INSERTING_SIZE):
             buffer = buffer.astype(object).replace(DatasetFactory.NAN, None).to_dict("records")
@@ -278,8 +286,20 @@ class BaseDB(abc.ABC):
         except (AttributeError, Exception):
             pass
 
+    def _set_last_exception_after_execute(self, last_script_part, exception, min_line=0, params=None):
+        self.LAST_RUN_SCRIPT_ERROR = tools.Cdict(msg=str(exception).split("\n")[0],
+                                                 min_line=min_line,
+                                                 max_line=min_line + last_script_part.count("\n"),
+                                                 params=params)
+        if hasattr(exception, "offset"):
+            line = last_script_part[:int(exception.offset)].count("\n") + min_line
+            self.LAST_RUN_SCRIPT_ERROR.script = last_script_part
+            self.LAST_RUN_SCRIPT_ERROR.offset = exception.offset
+            self.LAST_RUN_SCRIPT_ERROR.error_line = line
+
     @staticmethod
     @abc.abstractmethod
+    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def _execute(cursor, script, params=None, ignore_error=False,
                  connexion=None, method="single", **kwargs):
         """
@@ -325,10 +345,15 @@ class BaseDB(abc.ABC):
 
     # @abc.abstractmethod
     def get_all_data_from_cursor(self, cursor, limit=INFINITE, dict_res=False, export_name=None, sep=";"):
-        if not self._check_if_cursor_has_rows(cursor):
+        try:
+            self.LAST_REQUEST_COLUMNS = None
+            if not self._check_if_cursor_has_rows(cursor):
+                return None
+            self.LAST_REQUEST_COLUMNS = self._get_cursor_description(cursor).columns
+            columns = self.LAST_REQUEST_COLUMNS
+            assert columns is not None
+        except (AssertionError, Exception):
             return None
-        self.LAST_REQUEST_COLUMNS = self._get_cursor_description(cursor).columns
-        columns = self.LAST_REQUEST_COLUMNS
 
         data = []
         try:
@@ -336,11 +361,15 @@ class BaseDB(abc.ABC):
             if callable(export_name):
                 pass
             elif export_name is not None:
-                export_file = open(export_name, "w")
+                # export_file = open(export_name, "w")
+                export_file = open(export_name, "w", newline="")
 
             with export_file:
+                writer = None
                 if export_name is not None and not callable(export_name):
-                    export_file.write(for_csv(columns, sep=sep) + "\n")
+                    writer = csv.writer(export_file, delimiter=sep)
+                    writer.writerow(columns)
+                    # export_file.write(for_csv(columns, sep=sep) + "\n")
 
                 for row in self._fetchone(cursor, limit=limit):
                     if not row:
@@ -350,12 +379,14 @@ class BaseDB(abc.ABC):
                     if callable(export_name):
                         export_name(row, columns)
                     elif export_name is not None:
-                        export_file.write(for_csv(row, sep=sep) + "\n")
+                        writer.writerow(row)
+                        # export_file.write(for_csv(row, sep=sep) + "\n")
                     else:
                         data.append(row)
             if export_name is not None:
                 return
         except Exception:
+            # traceback.print_exc()
             pass
         if limit == 1:
             if len(data):
@@ -369,38 +400,39 @@ class BaseDB(abc.ABC):
         sql = BaseDB._uncomment_sql(sql, sigle_line_symbole="--")
 
         sql_without_quote, quotes_ref = tools.replace_quoted_text(sql)
-        sql_without_quote = sql_without_quote.strip()
+        # sql_without_quote = sql_without_quote.strip()
         if not sql_without_quote.endswith(";"):
             sql_without_quote += ";"
 
         # check for delimiters (mysql delimiter [\W+|//] ... end [\W+|//] )
 
-        # spec case of PACKAGE BODY
-        script_without_package, package_ref = tools.extract_structure(
+        script_without_proc, proc_refs = tools.extract_structure(
             sql_without_quote,
-            symbol_start=r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?PACKAGE\s+BODY\s+(?:\w+.)(\w+)\s+(?:IS|AS)",
-            symbol_end=";\\s*^\\s*END\\s+\1\\s*;(?:^\\s*/)?",
-            maximum_deep=1, flags=re.S | re.I | re.M, sep=";"
-        )
-        script, proc_refs = tools.extract_structure(
-            script_without_package,
             symbol_start=r"^\s*(?:(?:PROCEDURE\s.+?|DECLARE.+?|"
                          r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE|TRIGGER)\s.+?)"
                          r"^\s*BEGIN|BEGIN)",
             symbol_end=r";\s*^\s*END\s*;(?:\s*/)?",
             maximum_deep=1, flags=re.S | re.I | re.M, sep=";")
+
+        # spec case of PACKAGE BODY
+        script, package_ref = tools.extract_structure(
+            script_without_proc,
+            symbol_start=r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?PACKAGE\s+BODY\s+(?:\w+.)(\w+)\s+(?:IS|AS)",
+            symbol_end=";\\s*^\\s*END\\s+\1\\s*;(?:^\\s*/)?",
+            maximum_deep=1, flags=re.S | re.I | re.M, sep=";"
+        )
         queries = []
         for query in script.split(";"):
             # recalculation
-            for k in proc_refs:
-                query = query.replace(k, proc_refs[k])
             for k in package_ref:
-                query = query.replace(k, package_ref[k])
+                query = query.replace(k, package_ref[k], 1)
+            for k in proc_refs:
+                query = query.replace(k, proc_refs[k], 1)
             for k in quotes_ref:
-                query = query.replace(k, quotes_ref[k])
+                query = query.replace(k, quotes_ref[k], 1)
 
-            query = query.strip()
-            if len(query):
+            # query = query.strip()
+            if len(query.strip()):
                 queries.append(query)
         return queries
 
@@ -420,19 +452,25 @@ class BaseDB(abc.ABC):
             query,
             symbol_start=r"/\*",
             symbol_end=r"\*/",
-            maximum_deep=1, flags=re.S, preserve=False
+            maximum_deep=1, flags=re.S
         )
+        for k in comments:
+            com = comments[k]
+            for _str in r:
+                com = com.replace(_str, r[_str], 1)
+            query = query.replace(k, "\n" * (com.count("\n")), 1)
         comments_list.extend(list(comments.values()))
-
         qquery = query.split("\n")
+        final_script = []
         for line in qquery:
             line = re.split(sigle_line_symbole, line, maxsplit=1)
-            final_script += "\n" + line[0]
+            final_script.append(line[0])
             comments_list.extend(line[1:])
+        final_script = "\n".join(final_script)
         for k in r:
-            final_script = final_script.replace(k, r[k])
+            final_script = final_script.replace(k, r[k], 1)
             for i in range(len(comments_list)):
-                comments_list[i] = comments_list[i].replace(k, r[k])
+                comments_list[i] = comments_list[i].replace(k, r[k], 1)
         if callable(show_comments_func):
             show_comments_func("Got comments: " + repr(comments_list))
         return final_script
@@ -490,6 +528,8 @@ class BaseDB(abc.ABC):
                 res = re.search(r"(\sin\s*)?(\?|%s)", query)
             code += query
         elif re.search(r"(:\w+\W|%\(\w+\)s\W)", query + " "):
+            if params is None:
+                params = {}
             got = True
             code = ""
             res = re.search(r"(\sin\s*)?(:(\w+)|%\((\w+)\)s)(\W)", query + " ")
@@ -500,8 +540,9 @@ class BaseDB(abc.ABC):
                 struc, i, ii, sep = res.groups()[1:]
                 i = i or ii
                 try:
-                    pp = params[i]
-                except (KeyError, Exception):
+                    assert (i in params) or (i in os.environ.keys())
+                    pp = params.get(i, os.environ.get(i))
+                except (KeyError, Exception, AttributeError):
                     if not ignore_error:
                         raise ValueError("Prepared args (" + i + ") in the script is not specify:" + repr(sql))
                     pp = None
@@ -538,7 +579,7 @@ class BaseDB(abc.ABC):
 
         if got:
             for k in r:
-                code = code.replace(k, r[k])
+                code = code.replace(k, r[k], 1)
         else:
             code = sql
         return code, final_params, query_prepare_type, nb_var
@@ -564,6 +605,7 @@ class BaseDB(abc.ABC):
             script = BaseDB._script_tokenizer(script)
         for s in script:
             s, consider_params, _type, nb_var = BaseDB._prepare_query(s, params)
+            print(s, consider_params, _type, nb_var)
 
     def run_script(self, script: typing.Union[list, str], params=None, *, retrieve=None, limit=INFINITE,
                    ignore_error=False, dict_res=False, export=False, export_name=None, sep=";", timeout=None):
@@ -584,6 +626,7 @@ class BaseDB(abc.ABC):
         Returns: data results if retrieve
 
         """
+        self.LAST_RUN_SCRIPT_ERROR = None
         if timeout is not None and str(self._get_name).lower() == "sqlitedb" and self.file_name == ":memory:":
             raise ValueError("Bad argument timeout set. for SQLiteDB impossible to set timeout. Do it yourself")
         if timeout is not None:
@@ -622,15 +665,17 @@ class BaseDB(abc.ABC):
         consider_params = None
         s = None
         concat_s = ""
+        min_line = 0
         try:
             for s in script:
                 s, consider_params, _type, nb_var = self._prepare_query(s, params, ignore_error)
-                concat_s += s
+
                 assert len(consider_params or []) <= self.MAX_PARAMETERS, "Max parameters reach. " \
                                                                           "Please consider this error."
                 cursor = self._execute(cursor, s, params=consider_params,
                                        ignore_error=False,
                                        connexion=self.db_object)
+                min_line += s.count("\n")
                 if _type == 0:
                     if isinstance(params, (list, tuple, dict)):
                         params = list(params)
@@ -639,17 +684,21 @@ class BaseDB(abc.ABC):
                     for _ in range(nb_var):
                         params.pop(0)
         except Exception as ex:
-            if concat_s:
-                self.LAST_SQL_CODE_RUN = concat_s
-            self._print_info("*" * 10, "Got error when try to run", "*" * 10)
             if isinstance(consider_params, (tuple, list)) and len(consider_params) > 20:
                 consider_params = repr(consider_params[:20])[:-1] + f", ...] ({len(consider_params)})"
-            self._print_info(s or self.LAST_SQL_CODE_RUN, consider_params)
-            self._print_info("**" * 10)
-            self._print_error(ex)
+            else:
+                consider_params = repr(consider_params)
+            self._set_last_exception_after_execute(s, ex.args[0], min_line=min_line, params=consider_params)
+            if concat_s:
+                self.LAST_SQL_CODE_RUN = concat_s
             self.rollback()
             if not ignore_error:
                 raise Exception(ex)
+            else:
+                self._print_info("*" * 10, "Got error when try to run", "*" * 10)
+                self._print_info(s or self.LAST_SQL_CODE_RUN, consider_params)
+                self._print_info("**" * 10)
+                self._print_error(ex)
             return
 
         self.commit()
@@ -657,7 +706,7 @@ class BaseDB(abc.ABC):
             if export_name is None:
                 export_name = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Downloads')
                 if not os.path.exists(export_name):
-                    export_name = os.path.dirname(__file__)
+                    export_name = os.getcwd()
                 export_name = os.path.join(export_name, "export_data.csv")
                 export_name = tools.get_no_filepath(export_name)
 
@@ -718,7 +767,7 @@ class BaseDB(abc.ABC):
                 dataset = dataset.loc[:, columns.keys()]
                 dataset.rename(columns=columns, inplace=True)
         print("got %s data from file given" % dataset.shape[0])
-        print(dataset)
+        # print(dataset)
         table_name = tools.format_var_name(table_name or "new_table")
         table_script = f"CREATE TABLE " \
                        f"{'IF NOT EXISTS' if (if_not_exists and 'oracle' not in self._get_name.lower()) else ''} " \
@@ -733,11 +782,11 @@ class BaseDB(abc.ABC):
             equivalent[col] = field
             if index > 0:
                 table_script += ","
-            # print(is_integer_dtype(dataset[col]), dataset[col])
-            if is_integer_dtype(dataset[col]) and (
+
+            if is_integer_dtype(dataset.iloc[:,index]) and (
                     is_integer_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
                 table_script += f"\n\t{field} int"
-            elif (is_float_dtype(dataset[col]) or is_integer_dtype(dataset[col])) and (
+            elif (is_float_dtype(dataset.iloc[:,index]) or is_integer_dtype(dataset.iloc[:,index])) and (
                     is_float_dtype(str(ftype.get(col)).lower()) or ftype.get(col) is None):
                 table_script += f"\n\t{field} float"
             else:
@@ -747,13 +796,13 @@ class BaseDB(abc.ABC):
                     table_script += f"\n\t{field} {ftype.get(col)}"
 
                 if not got:
-                    is_datetime_resp = _can_be_datetime_field(dataset[col], date_format=date_str_format)
+                    is_datetime_resp = _can_be_datetime_field(dataset.iloc[:,index], date_format=date_str_format)
                     if is_datetime_resp == "NO" and (
                             "date" not in str(ftype.get(col)).lower() or ftype.get(col) is None
                     ):
-                        dataset[col] = dataset[col].apply(lambda x: str(x) if not pandas.isnull(x) else None)
-                        max_ = max(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
-                        min_ = min(dataset[col][:10000].apply(lambda x: len(str(x)) if x else 0))
+                        dataset.iloc[:,index] = dataset.iloc[:,index].apply(lambda x: str(x) if not pandas.isnull(x) else None)
+                        max_ = max(dataset.iloc[:,index][:10000].apply(lambda x: len(str(x)) if x else 0))
+                        min_ = min(dataset.iloc[:,index][:10000].apply(lambda x: len(str(x)) if x else 0))
                         if max_ == min_:
                             size = max_
                             if size == 0:
@@ -768,10 +817,10 @@ class BaseDB(abc.ABC):
                             type_ = f"varchar({size or 255})"
                     elif is_datetime_resp == "DATETIME":
                         type_ = "TIMESTAMP" if "oracle" in self._get_name.lower() else "datetime"
-                        dataset[col] = dataset[col].apply(
+                        dataset.iloc[:,index] = dataset.iloc[:,index].apply(
                             lambda val: tools.CustomDateTime(str(val), default=None, ignore_errors=True)())
                     else:
-                        dataset[col] = dataset[col].apply(
+                        dataset.iloc[:,index] = dataset.iloc[:,index].apply(
                             lambda val: tools.CustomDateTime(str(val), default=None, ignore_errors=True).date)
                         type_ = "date"
 
@@ -779,7 +828,7 @@ class BaseDB(abc.ABC):
             dataset.rename(columns={col: field}, inplace=True)
 
         table_script += "\n)"
-        if if_not_exists and "oracle" in self._get_name.lower():
+        if if_not_exists:
             try:
                 self.run_script("select * from " + table_name, limit=1)
                 print("The Table specify were exists: Going to drop it")
@@ -802,14 +851,18 @@ class BaseDB(abc.ABC):
 
 
 def for_csv(row, sep=";"):
+    # don't work well, use csv.write
+    sep = str(sep or ",")
     rows = []
     for cell in row:
         if pandas.isnull(cell):
             cell = ""
         else:
-            if (sep or ",") in str(cell):
-                cell = re.sub(r'(?<!")"(?!")', '""', str(cell), flags=re.I)
+            cell = str(cell)
+            if sep in cell or "\n" in cell:
+                # cell = re.sub(r'(?<!")"(?!")', '""', cell, flags=re.I)
+                cell = cell.replace('"', '""')
                 cell = f'"{cell}"'
-        rows.append(str(cell))
+        rows.append(cell)
 
     return sep.join(rows)

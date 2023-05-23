@@ -10,8 +10,13 @@ required mysql-connector-python~=8.0.25
 import traceback
 
 import mysql.connector
-from kb_package.tools import Cdict
-from kb_package.database.basedb import BaseDB
+from kb_package.tools import Cdict, many_try
+from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
+    SLEEP_IF_ERROR as SLEEP
+
+MAX_EXECUTE_TRY = MAX
+ERROR_TO_IGNORE = ERROR
+SLEEP_IF_ERROR = SLEEP
 
 
 class MysqlDB(BaseDB):
@@ -28,6 +33,7 @@ class MysqlDB(BaseDB):
             return False
 
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
             port=DEFAULT_PORT, **kwargs
@@ -63,6 +69,7 @@ class MysqlDB(BaseDB):
         return self.db_object.cursor()
 
     @staticmethod
+    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         """
         use to make preparing requests
@@ -85,13 +92,9 @@ class MysqlDB(BaseDB):
             getattr(cursor, method)(script, **params)
             return cursor
         except Exception as ex:
-            print("*"*100)
-            print(script, params)
-            print("*" * 100)
-            traceback.print_exc()
             if ignore_error:
                 return None
-            raise Exception(ex)
+            raise ex
 
     @staticmethod
     def get_add_increment_field_code(field_name="id"):

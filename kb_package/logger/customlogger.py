@@ -149,6 +149,16 @@ class CustomLogger:
 
         self.writer = logger
 
+    @property
+    def log_file(self):
+        if self.base_file_name is None:
+            return None
+        try:
+            self.writer.handlers[0].stream.truncate()
+        except OSError:
+            self._create_new_logger_handler()
+        return self.writer.handlers[0].stream
+
     def _log(self, msg, *args, level="INFO", **kwargs):
         """
         Use to log
@@ -161,11 +171,17 @@ class CustomLogger:
 
         """
         self._last_end = kwargs.pop("end", "\n")
+        recreate = False
+        try:
+            self.writer.handlers[0].stream.truncate()
+        except OSError:
+            recreate = True
+
         if self.last_file_name is not None:
-            if self.max_size is not None:
-                if os.stat(self.last_file_name).st_size > self.max_size:
+            if self.max_size is not None or recreate:
+                if recreate or os.stat(self.last_file_name).st_size > self.max_size:
                     try:
-                        while len(self.writer.handlers):
+                        while self.writer.hasHandlers():
                             handler = self.writer.handlers[0]
                             handler.flush()
                             handler.close()
@@ -196,6 +212,9 @@ class CustomLogger:
         getattr(self.writer, level.lower())(msg, **kwargs)
         if self.callback and self.callback_each_logging:
             self.send_all_logger_message_by_callback()
+
+    def __call__(self, *args, **kwargs):
+        self._log(*args, **kwargs)
 
     def info(self, msg="\n", *args, **kwargs):
         """

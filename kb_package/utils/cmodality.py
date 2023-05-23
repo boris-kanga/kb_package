@@ -7,16 +7,7 @@ import pandas
 
 INFINITE = tools.INFINITE
 
-
-def lev_calculate(str1, str2):
-    dist, r = 0, 0
-    try:
-        import Levenshtein as lev
-        dist = lev.distance(str1, str2)
-        r = lev.ratio(str1, str2)
-    except ImportError:
-        pass
-    return dist, r
+__cache__ = {}
 
 
 class CModality:
@@ -30,15 +21,18 @@ class CModality:
         modal({"key": "test", ...}, {"key": "moi", ...}, {"key": boris", ...}, key="key")
         """
         assert args, "No modalities got"
-
-        if len(args) == 1:
-            data = args[0]
-            assert isinstance(data, Iterable), "Bad value given: %s" % data
-            data = list(data)
-            assert len(data) > 1, "Got Only One argument"
-        else:
-            data = list(args)
-            assert len(data) > 1, "Got Only One argument"
+        try:
+            if len(args) == 1:
+                data = args[0]
+                assert isinstance(data, Iterable), "Bad value given: %s" % data
+                data = list(data)
+                assert len(data) > 1, "Got Only One argument"
+            else:
+                data = list(args)
+                assert len(data) > 1, "Got Only One argument"
+        except AssertionError:
+            self._values = None
+            return
         data = tools.Cdict(data)
 
         values = {}
@@ -58,7 +52,8 @@ class CModality:
                     mod = (d.get(k) or next(d))
                     for mod_part in mod.split("|"):
                         mod_part = tools.format_var_name(mod_part.lower(),
-                                                         remove_accent=True, min_length_word=3)
+                                                         remove_accent=True, min_length_word=3,
+                                                         default=mod_part.lower())
                         modalities[k].append(mod_part)
                         all_modal.append(mod_part)
                         values[k][mod_part] = data[index]
@@ -73,7 +68,7 @@ class CModality:
             for index, mod in enumerate(data):
                 for mod_part in mod.split("|"):
                     mod_part = tools.format_var_name(mod_part.lower(),
-                                                     remove_accent=True, min_length_word=3)
+                                                     remove_accent=True, min_length_word=3, default=mod_part.lower())
                     temp.append(mod_part)
                     all_modal.append(mod_part)
                     value[mod_part] = data[index]
@@ -82,6 +77,7 @@ class CModality:
             modalities = {None: temp}
             values[None] = value
         self._modalities = modalities
+
         self._data = data
         self._key = key
         self._values = tools.Cdict(values)
@@ -104,16 +100,27 @@ class CModality:
                 for d in (modal or self._modalities)
             ]) + r")\b", flags=re.I | re.S)
 
-    def get(self, check, default=None):
-        check = tools.format_var_name(check, remove_accent=True, min_length_word=3)
-        print(check)
+    def get(self, check, default=None, threshold=EQUALITY_THRESHOLD, multiple=False):
+        if self._values is None:
+            if multiple:
+                return []
+            return default
+        original = check
+        if original in __cache__:
+            if multiple:
+                return [__cache__[original]]
+            return __cache__[original]
+        check = tools.format_var_name(check, remove_accent=True, min_length_word=3, default=check)
+        check = str(check).lower()
         best_candidates = []
         for k in (self._key or [None]):
             res = self._regex_obj[k].search(check)
-            print(k, res)
             if res:
                 check = res.groups()[0]
-                return self._retrieve(check, key=k)
+                __cache__[original] = self._retrieve(check, key=k)
+                if multiple:
+                    return [__cache__[original]]
+                return __cache__[original]
             check_len = len(check)
             all_modalities = sorted(self._modalities[k],
                                     key=lambda x: self._infinite if len(x) == check_len else (
@@ -127,36 +134,40 @@ class CModality:
             candidates = []
 
             for modality in all_modalities:
-
-                m = modality
+                m = modality.lower()
 
                 if (
                         len(m) not in range(len(check) - 3, len(check) + 3) and
                         not ("_" + check + "_" in "_" + m + "_") and
-                        not ("_" + m + "_" in "_" + check + "_")
+                        not ("_" + m + "_" in "_" + check + "_") and
+                        not len([_p for _p in m.split("_") if _p in check.split("_")])
                 ):
                     continue
 
                 if ("_" + check + "_") in ("_" + m + "_"):
                     candidates = []
-                    best_candidates.append([modality])
+                    best_candidates.append([m])
                     break
-                candidates.append([modality])
+                candidates.append([m])
             if len(candidates):
-                res, score, best = CModality.best_similarity(check, candidates)
-                if score >= CModality.EQUALITY_THRESHOLD:
-                    best_candidates.append(best)
+                res, score, best = CModality.best_similarity(check, candidates, threshold=threshold)
+                if score >= threshold:
+                    best_candidates.append([res])
+        if multiple:
+            return [self._retrieve(d[0]) for d in best_candidates]
         if len(best_candidates):
-            res, _, _ = CModality.best_similarity(check, best_candidates)
-            return self._retrieve(res)
-        return default
+            res, _, _ = CModality.best_similarity(check, best_candidates, threshold=threshold)
+            __cache__[original] = self._retrieve(res)
+            return __cache__[original]
+        __cache__[original] = default
+        return __cache__[original]
 
     @staticmethod
-    def best_similarity(text, candidates):
+    def best_similarity(text, candidates, threshold=EQUALITY_THRESHOLD):
         candidates = pandas.DataFrame(candidates, columns=["candidates"])
 
         candidates["score"] = candidates.candidates.apply(lambda candidat: CModality.equal(
-            this=candidat, other=text, get=True))
+            this=candidat, other=text, get=True, threshold=threshold))
         best_score = candidates.score.max()
 
         best = candidates.loc[candidates.score >= best_score, ["candidates"]]
@@ -168,27 +179,23 @@ class CModality:
         return ([(d, best_score, best) for d in best] or [(None, 0, None)])[0]
 
     @staticmethod
-    def equal(this, other, force=True, get=False):
+    def equal(this, other, force=True, get=False, threshold=EQUALITY_THRESHOLD):
         res = tools.Var(this) == other
         if not force:
             return res if not get else INFINITE
         if res:
             return True if not get else INFINITE
 
-        lev1 = lev_calculate(other, this)
-        if lev1[1] >= CModality.EQUALITY_THRESHOLD:
-            # print(this, other, lev1)
-            pass
+        lev1 = tools.lev_calculate(other, this)
+
         if get:
             return lev1[1]
-        return lev1[1] >= CModality.EQUALITY_THRESHOLD
+        return lev1[1] >= threshold
 
     def got_dataset_series_modalities(self, series: pandas.Series, key=None, *, max_fils=1000):
 
-        def test_parse_city(d):
+        def _apply(d):
             if pandas.isnull(d):
-                return d, None
-            if DatasetFactory.is_null(d):
                 return d, None
             v = tools.Cdict(self.get(d, default=-1))
             if isinstance(v, int) and not isinstance(v, self.__type):
@@ -205,7 +212,7 @@ class CModality:
 
         unique = {}
         for ss in tools.get_buffer(series.unique(), max_fils, vv=False):
-            unique.update({d: v for d, v in tools.concurrent_execution(test_parse_city, len(ss), args=ss)})
+            unique.update({d: v for d, v in tools.concurrent_execution(_apply, len(ss), args=ss)})
 
         return series.apply(lambda d: unique[d])
 
@@ -217,14 +224,13 @@ if __name__ == '__main__':
     from kb_package._const import KB_ZONE_CI_PATH
 
     zoneJson = tools.read_json_file(KB_ZONE_CI_PATH, [])
-    # print(zoneJson)
-    # dataset = DatasetFactory(r"C:\Users\FBYZ6263\Downloads\base_parc_4G_fixe.csv")
+    dataset = DatasetFactory(r"C:\Users\FBYZ6263\Downloads\adsl_client.csv")
 
     test = CModality(zoneJson, key=["ua", "search"])
     start_time = time.time()
-    # dataset["TEST"] = test.got_dataset_series_modalities(dataset["ville"], "ua")
-
     print(test.get("sanpedro"))
+    dataset["commune"] = test.got_dataset_series_modalities(dataset["ville"], "ua")
+    dataset.save()
 
     print(time.time() - start_time)  # 296
     # print(dataset)

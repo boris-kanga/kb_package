@@ -25,6 +25,7 @@ import kb_package.tools as tools
 import kb_package.utils._query_func as query_func
 
 from kb_package.logger import CustomLogger
+import keyword
 
 Logger = CustomLogger("DatasetFactory")
 
@@ -52,8 +53,12 @@ class DatasetFactory:
         elif not isinstance(dataset, pandas.DataFrame) or (hasattr(dataset, "readable") and dataset.readable()):
             self.__source = self.from_file(dataset, **kwargs).dataset
         else:
+            columns = self._parse_columns_arg(kwargs.get("columns"), dataset.columns)
+            if columns is not None:
+                dataset = dataset.loc[:, columns.keys()]
+                dataset.rename(columns=columns, inplace=True)
             self.__source = dataset
-        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+        self.columns = pandas.Index([tools.Var(col, force=True) for col in self.__source.columns])
 
         if dd or kwargs.get("drop_duplicates") or kwargs.get("rd"):
             if drop_on is None:
@@ -65,6 +70,9 @@ class DatasetFactory:
     def __parse_col(col, columns):
         for item in columns:
             if tools.Var(item) == col:
+                return item
+        for item in columns:
+            if tools.Var(item, force=True) == col:
                 return item
         return col
 
@@ -124,7 +132,7 @@ class DatasetFactory:
     def __setitem__(self, key, value):
         key = self.__parse_default_col_name(key)
         self.__source.__setitem__(key, value)
-        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+        self.columns = pandas.Index([tools.Var(col, force=True) for col in self.__source.columns])
 
     # Ok
     def __getitem__(self, item):
@@ -141,23 +149,23 @@ class DatasetFactory:
     def __delitem__(self, key):
         key = self.__parse_default_col_name(key)
         self.__source.__delitem__(key)
-        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+        self.columns = pandas.Index([tools.Var(col, force=True) for col in self.__source.columns])
 
     # Ok
     def __delattr__(self, item):
         key = self.__parse_default_col_name(item)
         self.__source.__delitem__(key)
-        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+        self.columns = pandas.Index([tools.Var(col, force=True) for col in self.__source.columns])
 
     # Ok
     def __setattr__(self, key, value):
         if (key in ["_DatasetFactory" + pp for pp in ["__source", "__path"]] or
-                key in ("columns", )):
+                key in ("columns",)):
             super().__setattr__(key, value)
             return
         key = self.__parse_default_col_name(key)
         setattr(self.__source, key, value)
-        self.columns = pandas.Index([tools.Var(col) for col in self.__source.columns])
+        self.columns = pandas.Index([tools.Var(col, force=True) for col in self.__source.columns])
 
     # Ok
     def save(self, path=None, force=False, chdir=True, **kwargs):
@@ -279,6 +287,44 @@ class DatasetFactory:
             sep = None
         return sep
 
+    def rename(self, mapper=None, inplace=False, **kwargs):
+        columns = kwargs.pop("columns", None)
+        if isinstance(columns, dict):
+            final_col = {}
+            for key, v in columns.items():
+                final_col[self.__parse_default_col_name(key)] = v
+        else:
+            final_col = columns
+        if inplace:
+            self.__source.rename(mapper=mapper, inplace=True, columns=final_col, **kwargs)
+            self.columns = pandas.Index([tools.Var(col, force=True) for col in self.__source.columns])
+        else:
+            return self.__source.rename(mapper=mapper, inplace=True, columns=final_col, **kwargs)
+
+    def drop(self, labels=None,
+             axis=0,
+             index=None,
+             columns=None,
+             level=None,
+             inplace=False,
+             errors: str = "raise"):
+        final_col = None
+        if labels and axis in [1, "column", "columns"]:
+            columns = labels
+            labels = None
+            axis = 0
+        if columns:
+            final_col = []
+            if isinstance(columns, str):
+                columns = [columns]
+            for key in columns:
+                final_col.append(self.__parse_default_col_name(key))
+        self.__source.drop(labels, axis, index, final_col, level, inplace, errors)
+        if inplace:
+            self.columns = pandas.Index([tools.Var(col, force=True) for col in self.__source.columns])
+        else:
+            return self.__source
+
     # Ok
     @classmethod
     def from_file(cls, file_path, sep=None, columns=None,
@@ -387,18 +433,14 @@ class DatasetFactory:
                                        **{k: v for k, v in kwargs.items() if k in ["index", "dtype"]})
 
         cls.LAST_FILE_LOADING_TIME = time.time() - start_time
-        columns = cls._parse_columns_arg(columns, dataset.columns)
-        if columns is not None:
-            dataset = dataset.loc[:, columns.keys()]
-            dataset.rename(columns=columns, inplace=True)
 
-        return cls(dataset)
+        return cls(dataset, columns=columns)
 
     @staticmethod
     def _parse_columns_arg(columns, dataset_columns):
         if tools.BasicTypes.is_iterable(columns):
             final_col = {}
-            dataset_columns = [tools.Var(col) for col in dataset_columns]
+            dataset_columns = [tools.Var(col, force=True) for col in dataset_columns]
             first = next(iter(columns))
             without = False
             if first is Ellipsis:
@@ -435,7 +477,7 @@ class DatasetFactory:
         """
         op like col1 + col2 --> retrieve the dataframe with added column col1 + col2
         """
-        if op in [tools.Var(d) for d in dataframe.columns]:
+        if op in [tools.Var(d, force=True) for d in dataframe.columns]:
             return dataframe
         dataframe[alias or tools.format_var_name(op, permit_char="+-*/")] = DatasetFactory(dataframe).apply(op)
         return dataframe
@@ -549,6 +591,8 @@ class DatasetFactory:
     def __add__(self, other):
         if isinstance(other, self.__class__):
             other = other.dataset
+        if isinstance(other, (dict, list, str)) or hasattr(other, "readable"):
+            other = DatasetFactory(other)
         if self.__source.empty or (
                 len(self.columns) == len(other.columns) and all(self.columns == other.columns)):
             return DatasetFactory(pandas.concat([self.__source, other], ignore_index=True, sort=False))
@@ -574,16 +618,17 @@ class DatasetFactory:
 
             var_root_name = tools._get_new_kb_text(" ".join(self.__source.columns))
 
-            eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index)).lower()
+            eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index), no_case=True)
                       for index, col in enumerate(self.__source.columns)}
             inplace = kwargs.pop("inplace", False)
             try:
                 self.__source.rename(columns=eq_col, inplace=True)
 
-                hard, query, concerned_names = QueryTransformer(permit_funcs=permit_funcs).process(
+                hard, query, concerned_names = QueryTransformer(permit_funcs=permit_funcs,
+                                                                columns=list(eq_col.values())).process(
                     query,
-                    params=params,
-                    columns=list(self.__source.columns))
+                    params=params
+                )
                 # dataset.rename(columns={self.__parse_default_col_name(col): col for col in concerned_names},
                 # inplace=True)
                 if hard:
@@ -634,12 +679,13 @@ class DatasetFactory:
 
         var_root_name = tools._get_new_kb_text(" ".join(self.__source.columns))
 
-        eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index)).lower()
+        eq_col = {col: tools.format_var_name(col, default=var_root_name + "_" + str(index), no_case=True)
                   for index, col in enumerate(self.__source.columns)}
         try:
             self.__source.rename(columns=eq_col, inplace=True)
 
-            res = QueryTransformer("serie", hard=True, permit_funcs=permit_funcs).process(
+            res = QueryTransformer("serie", hard=True, permit_funcs=permit_funcs,
+                                   columns=list(eq_col.values())).process(
                 func,
                 _for="apply",
                 params=params)
@@ -680,7 +726,7 @@ class QueryTransformer(ast.NodeTransformer):
                     isinstance(m, numpy.vectorize))))
     }
 
-    def __init__(self, *args, hard=True, permit_funcs=None):
+    def __init__(self, *args, hard=True, permit_funcs=None, columns=()):
         super().__init__()
         if len(args):
             self.PREFIX = args[0]
@@ -693,14 +739,26 @@ class QueryTransformer(ast.NodeTransformer):
         self._hard = hard
         self._use_attr = False
         self.list_name = []
+        self.columns = columns
 
     def visit_Attribute(self, node):
         self._use_attr = True
 
+    def get_real_columns(self, name):
+        if not self.columns:
+            return name.lower()
+        for col in self.columns:
+            if tools.Var(col) == name:
+                return col
+        for col in self.columns:
+            if tools.Var(col, force=True) == name:
+                return col
+        raise KeyError("Don't find column: %s in columns list %s" % (name, self.columns))
+
     def visit_Name(self, node):
         # print("name", ast.dump(node, indent=2))
         if node.id.lower() not in ("null", "none"):
-            node.id = node.id.lower()
+            node.id = self.get_real_columns(node.id)
             self.list_name.append(node)
         return node
 
@@ -794,10 +852,8 @@ class QueryTransformer(ast.NodeTransformer):
 
         return node
 
-    def process(self, node: str | ast.AST, verbose=False, _for="query", params=None, columns=None):
+    def process(self, node: str | ast.AST, verbose=False, _for="query", params=None):
         if isinstance(node, str):
-            if columns is None:
-                columns = []
             if isinstance(params, dict):
                 params = {k: repr(v) for k, v in params.items()}
             elif isinstance(params, (list, tuple)):
@@ -817,7 +873,7 @@ class QueryTransformer(ast.NodeTransformer):
             def eq_col(match):
                 index = int(match.groups()[0][1:]) - 1
 
-                return columns[index]
+                return self.columns[index]
 
             query = re.sub(r"(@\d+)", eq_col, query)
             # replace = by ==

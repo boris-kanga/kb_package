@@ -41,7 +41,7 @@ class BIGDatasetFactory:
     def __init__(self, path, columns=None, header=True, sep=None, encoding=None, force_encoding=True, *,
                  force_=False, max_nb_line=None, **kwargs):
         self.__path = path
-        encoding = encoding or "utf-8"
+        encoding = encoding or "cp1252"
         self.__nb_rows = 0
         delimiters = kwargs.pop("delimiters", [',', '\t', ';', ' ', ':'])
         used_sniffer = False
@@ -77,9 +77,9 @@ class BIGDatasetFactory:
                 raise exc
         self.extra_info = tools.Cdict(file_size=os.stat(path).st_size, seek=0, first_row_seek=0)
         self.columns = None
-        with open(path, encoding=encoding) as file:
+        with open(path, encoding="cp1252") as file:
             if header:
-                self.__origin_columns = next(csv.reader(io.StringIO(file.readline()), delimiter=sep))
+                self.__origin_columns = next(csv.reader(io.StringIO(file.readline()), delimiter=sep or ","))
                 self.extra_info.first_row_seek = file.tell()
             else:
                 self.__origin_columns = columns
@@ -90,26 +90,31 @@ class BIGDatasetFactory:
             # for _ in file:
             #     self.__nb_rows += 1
             self.extra_info["end_file"] = file.tell()
-
-        self.__max_rows_threshold = (
-                BIGDatasetFactory.MEMORY_THRESHOLD * self.__nb_rows /
-                (self.extra_info.file_size / BIGDatasetFactory.TOTAL_VIRTUAL_MEMORY)
-        )
-        # print(self.__max_rows_threshold, self.__origin_columns, self.columns)
-        self.__max_rows_threshold = int(-(-self.__max_rows_threshold // self.DEFAULT_PART))
+        if not max_nb_line:
+            self.__max_rows_threshold = (
+                    BIGDatasetFactory.MEMORY_THRESHOLD * self.__nb_rows /
+                    (self.extra_info.file_size / BIGDatasetFactory.TOTAL_VIRTUAL_MEMORY)
+            )
+            # print(self.__max_rows_threshold, self.__origin_columns, self.columns)
+            self.__max_rows_threshold = int(-(-self.__max_rows_threshold // self.DEFAULT_PART))
+        else:
+            self.__max_rows_threshold = int(max_nb_line)
         # 16184196.341083076
-        self.__sep = sep
-        self.__encoding = encoding or "utf-8"
+        self.__sep = sep or ","
+        self.__encoding = encoding or "cp1252"
         self.__force_encoding = force_encoding
 
         self.extra_info.seek, self.__source_temp = self.__get_dataset()
         if self.columns is None:
             self.columns = self.__source_temp.columns
+    @property
+    def size(self):
+        return self.__nb_rows
 
     def __get_dataset(self, seek=None, last_rows=0):
         with open(self.__path, encoding=self.__encoding) as file:
             file.seek(seek or self.extra_info.first_row_seek)
-            data = io.StringIO("".join([file.readline() for _ in range(self.__max_rows_threshold)]))
+            data = io.StringIO("".join([file.readline().replace('\0', '') for _ in range(self.__max_rows_threshold)]))
 
             seek = file.tell()
             data = [row for row in csv.reader(data, delimiter=self.__sep)]
@@ -125,6 +130,13 @@ class BIGDatasetFactory:
 
     def __str__(self):
         return self.__repr__()
+
+    def get_temp(self):
+        t = self.extra_info.first_row_seek
+        self.extra_info.first_row_seek = 0
+        res = self.__get_dataset(seek=0)
+        self.extra_info.first_row_seek = t
+        return res[1]
 
     def __loop(self):
         seek = self.extra_info.first_row_seek or 0
