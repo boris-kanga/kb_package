@@ -12,14 +12,9 @@ import traceback
 import pymongo
 
 from kb_package.database.where_clause import WhereClause
-from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
-    SLEEP_IF_ERROR as SLEEP
+from kb_package.database.basedb import BaseDB
 from kb_package.tools import INFINITE, Cdict
 from kb_package import tools
-
-MAX_EXECUTE_TRY = MAX
-ERROR_TO_IGNORE = ERROR
-SLEEP_IF_ERROR = SLEEP
 
 
 class MongoDB(BaseDB):
@@ -42,7 +37,7 @@ class MongoDB(BaseDB):
 
     # implementation of abstracts methods
     @staticmethod
-    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @tools.many_try(max_try=1, sleep_time=0, error_manager_key="BD_MONGO")
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
             port=DEFAULT_PORT, **kwargs
@@ -92,7 +87,7 @@ class MongoDB(BaseDB):
         return Cdict(columns=[d for d in cursor[0]])
 
     @staticmethod
-    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @tools.many_try(max_try=1, sleep_time=0, error_manager_key="BD_MONGO")
     def _execute(cursor, script, params=None, ignore_error=False, **kwargs):
         """
         use to make preparing requests
@@ -253,8 +248,6 @@ class MongoDB(BaseDB):
                 print(f"db.{collection}.{method}({args[0]})")
 
         return {"collection": collection, "method": method, "args": args}
-
-
 
 
 if __name__ == "__main__":

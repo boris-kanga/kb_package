@@ -6,13 +6,8 @@ Use for run easily mysql requests
 
 import sqlite3
 
-from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
-    SLEEP_IF_ERROR as SLEEP
+from kb_package.database.basedb import BaseDB
 from kb_package.tools import Cdict, many_try
-
-MAX_EXECUTE_TRY = MAX
-ERROR_TO_IGNORE = ERROR
-SLEEP_IF_ERROR = SLEEP
 
 
 class SQLiteDB(BaseDB):
@@ -22,7 +17,8 @@ class SQLiteDB(BaseDB):
         return self.__class__.__name__
 
     @staticmethod
-    @many_try(max_try=MAX_EXECUTE_TRY, error_got="database is locked", sleep_time=SLEEP_IF_ERROR)
+    @many_try(max_try=100, error_got="database is locked", sleep_time=1,
+              error_manager_key="BD_SQLITE")
     def connect(file_name="database.db", **kwargs) -> sqlite3.Connection:
         """
         Making the connexion to the mysql database
@@ -49,7 +45,8 @@ class SQLiteDB(BaseDB):
         return self.db_object.cursor()
 
     @staticmethod
-    @many_try(max_try=MAX_EXECUTE_TRY, error_got="database is locked", sleep_time=SLEEP_IF_ERROR)
+    @many_try(max_try=100, error_got="database is locked", sleep_time=1,
+              error_manager_key="BD_SQLITE")
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         """
         use to make preparing requests

@@ -4,13 +4,8 @@ The Teradata database manager.
 Use for run easily Teradata requests
 """
 from kb_package.tools import Cdict, many_try
-from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
-    SLEEP_IF_ERROR as SLEEP
+from kb_package.database.basedb import BaseDB
 import teradatasql
-
-MAX_EXECUTE_TRY = MAX
-ERROR_TO_IGNORE = ERROR
-SLEEP_IF_ERROR = SLEEP
 
 
 class TeradataDB(BaseDB):
@@ -24,7 +19,7 @@ class TeradataDB(BaseDB):
         return True
 
     @staticmethod
-    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @many_try(max_try=1, sleep_time=0, error_manager_key="BD_TERADATA")
     def connect(host="127.0.0.1", user="root", password="", db_name=None, port=DEFAULT_PORT, **kwargs):
         """
         Making the connexion to the mysql database
@@ -53,7 +48,7 @@ class TeradataDB(BaseDB):
         return ["?" for _ in data], list(data.values())
 
     @staticmethod
-    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @many_try(max_try=1, sleep_time=0, error_manager_key="BD_TERADATA")
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         TeradataDB.LAST_SQL_CODE_RUN = script
         if method == "many":

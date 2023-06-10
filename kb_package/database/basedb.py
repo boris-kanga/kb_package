@@ -41,11 +41,6 @@ def _can_be_datetime_field(series, date_format=()):
         return "NO"
 
 
-ERROR_TO_IGNORE = None
-MAX_EXECUTE_TRY = 1
-SLEEP_IF_ERROR = 0
-
-
 class BaseDB(abc.ABC):
     MYSQL_DEFAULT_PORT = 3306
     DEFAULT_PORT = None
@@ -137,7 +132,7 @@ class BaseDB(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @tools.many_try(max_try=1, sleep_time=0, error_manager_key="BD_BASE")
     def connect(
             host="127.0.0.1", user="root", password="", db_name=None,
             port=DEFAULT_PORT, file_name=None, **kwargs
@@ -299,7 +294,7 @@ class BaseDB(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    @tools.many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @tools.many_try(max_try=1, sleep_time=0, error_manager_key="BD_BASE")
     def _execute(cursor, script, params=None, ignore_error=False,
                  connexion=None, method="single", **kwargs):
         """
@@ -533,6 +528,9 @@ class BaseDB(abc.ABC):
             got = True
             code = ""
             res = re.search(r"(\sin\s*)?(:(\w+)|%\((\w+)\)s)(\W)", query + " ")
+            global_params = os.environ.copy()
+            global_params.update(params)
+            global_params = tools.Cdict(global_params)
             while res:
                 nb_var += 1
                 code += query[:res.span()[0]]
@@ -540,8 +538,8 @@ class BaseDB(abc.ABC):
                 struc, i, ii, sep = res.groups()[1:]
                 i = i or ii
                 try:
-                    assert (i in params) or (i in os.environ.keys())
-                    pp = params.get(i, os.environ.get(i))
+                    assert i in global_params
+                    pp = global_params[i]
                 except (KeyError, Exception, AttributeError):
                     if not ignore_error:
                         raise ValueError("Prepared args (" + i + ") in the script is not specify:" + repr(sql))
@@ -552,15 +550,25 @@ class BaseDB(abc.ABC):
                     if tools.BasicTypes.is_iterable(pp) or pp is None:
                         pp = list(pp) or [None] if pp is not None else [None]
                         code += "("
-                        for e in pp:
-                            index = tools._get_new_kb_text(origin_transform_query + code, "in_elem")
-                            final_params[index] = e
-                            if struc.startswith(":"):
-                                code += ":" + index + ","
-                            else:
-                                code += "%(" + index + ")s,"
-                        code = code[:-1]
-                        code += ")" + sep
+                        if i in final_params:
+                            in_params = final_params[i]
+                            for index in in_params.keys():
+                                if struc.startswith(":"):
+                                    code += ":" + index + ","
+                                else:
+                                    code += "%(" + index + ")s,"
+                        else:
+                            in_params = {}
+                            for e in pp:
+                                index = tools._get_new_kb_text(origin_transform_query + code, "in_elem")
+                                in_params[index] = e
+                                if struc.startswith(":"):
+                                    code += ":" + index + ","
+                                else:
+                                    code += "%(" + index + ")s,"
+                            code = code[:-1]
+                            code += ")" + sep
+                            final_params[i] = in_params
                     else:
                         final_params[i] = pp
                         if struc.startswith(":"):
@@ -577,6 +585,13 @@ class BaseDB(abc.ABC):
                 res = re.search(r"(\sin\s*)?(:(\w+)|%\((\w+)\)s)(\W)", query + " ")
             code += query
 
+            format_params = {}
+            for k, v in final_params.items():
+                if isinstance(v, dict):
+                    format_params.update(v)
+                else:
+                    format_params[k] = v
+            final_params = format_params
         if got:
             for k in r:
                 code = code.replace(k, r[k], 1)

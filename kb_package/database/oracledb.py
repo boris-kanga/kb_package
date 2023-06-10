@@ -11,13 +11,8 @@ import os
 
 import cx_Oracle
 
-from kb_package.database.basedb import BaseDB, MAX_EXECUTE_TRY as MAX, ERROR_TO_IGNORE as ERROR, \
-    SLEEP_IF_ERROR as SLEEP
+from kb_package.database.basedb import BaseDB
 from kb_package.tools import Cdict, many_try
-
-MAX_EXECUTE_TRY = MAX
-ERROR_TO_IGNORE = ERROR
-SLEEP_IF_ERROR = SLEEP
 
 
 class OracleDB(BaseDB):
@@ -34,7 +29,7 @@ class OracleDB(BaseDB):
             return False
 
     @staticmethod
-    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @many_try(max_try=1, sleep_time=0, error_manager_key="BD_ORACLE")
     def connect(host="localhost",
                 user="root", password=None,
                 port=DEFAULT_PORT,
@@ -68,7 +63,7 @@ class OracleDB(BaseDB):
         return Cdict(columns=[col[0] for col in cursor.description or []])
 
     @staticmethod
-    @many_try(max_try=MAX_EXECUTE_TRY, sleep_time=SLEEP_IF_ERROR, error_got=ERROR_TO_IGNORE)
+    @many_try(max_try=1, sleep_time=0, error_manager_key="BD_ORACLE")
     def _execute(cursor, script, params=None, ignore_error=False, method="single", **kwargs):
         OracleDB.LAST_SQL_CODE_RUN = script
         if method == "many":
