@@ -407,11 +407,12 @@ class CustomDateTime:
                             v += s + "|"
                             month_ref[s] = key
                     v = v[:-1]
-                    reg = r"\s(?:(\d{1,2})[\s-]+)?(%s)[\s-]+(\d{2}|\d{4})\s" % v
+                    reg = r"\s(?:(\d{1,2})[\s-]+)?(%s)[\s-]+(?:(\d{2}|\d{4})\s)?" % v
                     if re.search(reg, f" {date_value} ", flags=re.I):
                         day, month, year = re.search(reg,
                                                      f" {date_value} ",
                                                      flags=re.I).groups()
+                        year = year or str(now.year)
                         if len(year) == 2:
                             if "20" + year <= str(datetime.datetime.now().year):
                                 year = "20" + year
