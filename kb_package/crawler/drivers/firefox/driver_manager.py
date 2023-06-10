@@ -135,6 +135,10 @@ class DriverManager(ParentDriverManager):
         ]
         versions = []
         first_v = None
+        try:
+            start_v = int(start_v)
+        except (TypeError, ValueError):
+            start_v = 0
         for v_min, v_max, v in supported_gecko_version:
             if v_min and v_max and v:
                 v_min = re.search(r"(\d+)", v_min.text)
@@ -149,6 +153,7 @@ class DriverManager(ParentDriverManager):
                     v_max = tools.INFINITE
                 if first_v is None:
                     first_v = v.text.strip().lower()
+                # print(repr(v_min), repr(start_v), repr(v_max))
                 if v_min <= start_v <= v_max:
                     versions.append(v.text.strip().lower())
         last_ref.data[start_v] = versions
