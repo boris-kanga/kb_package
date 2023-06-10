@@ -192,7 +192,7 @@ class DatasetFactory:
     # Ok
     @property
     def dataset(self):
-        return self.__source.rename(columns={k: self.columns[i] for i, k in enumerate(self.__source.columns)})
+        return self.__source.rename(columns={k: str(self.columns[i]) for i, k in enumerate(self.__source.columns)})
 
     # Ok
     def __str__(self):
