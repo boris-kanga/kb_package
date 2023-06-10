@@ -12,6 +12,7 @@ import importlib
 import os
 import traceback
 import typing
+from contextlib import contextmanager
 
 
 try:
@@ -317,6 +318,19 @@ class CustomDriver:
         except:
             self.origin_tab = self._driver.window_handles[0]
             self._driver.switch_to.window(self.origin_tab)
+
+    @contextmanager
+    def loading_action(self, time_out=tools.INFINITE, verbose=False):
+        self._driver.execute_script("window.$KB_LOADING_VARIABLE = 1")
+        start_time = time.time()
+        yield self._driver
+        loader = tools.ConsoleFormat.processing()
+        while self._driver.execute_script("return window.$KB_LOADING_VARIABLE") and (time.time()-start_time) < time_out:
+            if verbose:
+                next(loader)
+                time.sleep(0.01)
+        if verbose:
+            print("Page is now loading")
 
     @staticmethod
     def _get_driver(
