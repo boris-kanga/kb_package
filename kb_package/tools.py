@@ -65,7 +65,7 @@ def concurrent_execution(func, thread_nb=100, wait_for=True, max_workers=os.cpu_
             elif isinstance(args, str) or not getattr(args, "__getitem__", None):
                 _args = (args,)
             elif getattr(args, "__getitem__", None):
-                _args = (args[index], )
+                _args = (args[index],)
 
             futures.append(executor.submit(func, *_args, **_kwargs))
         if not wait_for:
@@ -433,7 +433,13 @@ def timer(logger_name=None, verbose=False):
     return inner
 
 
-def many_try(max_try=3, verbose=True, sleep_time=None, logger_name=None, error_got=None):
+def many_try(max_try=3, verbose=True, sleep_time=None, logger_name=None, error_got=None, error_manager_key=None):
+    if isinstance(error_manager_key, str):
+        error_got = os.environ.get(error_manager_key + "_ERROR_GOT", error_got)
+        max_try = os.environ.get(error_manager_key + "_MAX_TRY", max_try)
+        sleep_time = os.environ.get(error_manager_key + "_SLEEP_TIME", sleep_time)
+        logger_name = os.environ.get(error_manager_key + "_LOGGER_NAME", logger_name)
+
     def inner(func):
         log = lambda *args, **kwargs: print(*args, **kwargs)
         if verbose:
@@ -453,6 +459,9 @@ def many_try(max_try=3, verbose=True, sleep_time=None, logger_name=None, error_g
                             if str(ex) == error_got:
                                 pass
                             else:
+                                index_try = max_try
+                        elif isinstance(error_got, (list, tuple)):
+                            if str(ex) not in error_got:
                                 index_try = max_try
                         elif inspect.isclass(error_got) and isinstance(ex, error_got):
                             pass
@@ -755,6 +764,19 @@ class ConsoleFormat:
             getattr(ConsoleFormat, fg.upper(), None)
 
     @staticmethod
+    def processing(size=50, fill="█", empty="-", _print=print):
+        size = max(size, 10)
+        state = 0
+        fill = fill * int(size/4)
+        size = size - int(size/4)
+        while True:
+            _print(empty * state + fill + empty * (size - state), end="\r")
+            yield
+            state += 1
+            if state > size:
+                state = 0
+
+    @staticmethod
     def progress(current=None, target=None, percent=0,
                  fill="█", empty="-", msg="",
                  finish_msg=" 100%", decimals=1, size=50, _print=print):
@@ -773,19 +795,21 @@ class ConsoleFormat:
 def get_buffer(obj, max_buffer=200, vv=True) -> typing.Union[tuple, typing.Any]:
     i = 0
     if hasattr(obj, "shape"):
+        length = lambda x: x.shape[0]
         size = max(int(obj.shape[0] / max_buffer), 1)
     else:
+        length = len
         size = max(int(len(obj) / max_buffer), 1)
     for i in range(size):
+        tmp = obj[i * max_buffer: (i + 1) * max_buffer]
+        if length(tmp) > max_buffer:
+            tmp = tmp[:-1]
         if vv:
-            yield i / size, obj[i * max_buffer: (i + 1) * max_buffer]
+            yield i / size, tmp
         else:
-            yield obj[i * max_buffer: (i + 1) * max_buffer]
+            yield tmp
     res = obj[(i + 1) * max_buffer:]
-    if hasattr(res, "shape"):
-        if not res.shape[0]:
-            return
-    elif not len(res):
+    if not length(res):
         return
     if vv:
         yield (i + 1) / size, res
@@ -919,7 +943,7 @@ def _get_new_kb_text(string, root="kb_vars"):
     """
     i = 0
     temp = root
-    part1, part2 = root[:int(len(root)/2)], root[int(len(root)/2):]
+    part1, part2 = root[:int(len(root) / 2)], root[int(len(root) / 2):]
     while temp in string:
         i += 1
         temp = part1 + "_" + str(i) + "_" + part2
