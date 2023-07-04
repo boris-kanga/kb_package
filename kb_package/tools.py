@@ -44,6 +44,19 @@ def add_query_string_to_url(url, params):
     return ""
 
 
+def free_port():
+    """
+    Determines a free port using sockets.
+    """
+    import socket
+    free_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    free_socket.bind(('0.0.0.0', 0))
+    free_socket.listen(5)
+    port = free_socket.getsockname()[1]
+    free_socket.close()
+    return int(port)
+
+
 def force_delete_file(action, name, exc):
     os.chmod(name, stat_package.S_IWRITE)
     os.remove(name)
@@ -302,16 +315,17 @@ def image_to_base64(path):
 
 def get_platform_info():
     platform = sys.platform
+    is_posix = platform.startswith(("darwin", "cygwin", "linux", "linux2"))
     if platform == "win32":
         bit = (64 if "64-" in
                      os.popen("wmic os get osarchitecture").read() else 32)
-        return {"exe": ".exe", "os": "window", "platform": "win", "bit": bit}
+        return {"exe": ".exe", "os": "window", "platform": "win", "bit": bit, "is_posix": is_posix}
     if platform == "linux":
         bit = 64 if "x86_64" in os.popen("uname -m").read() else 32
-        return {"exe": "", "os": "linux", "platform": "linux", "bit": bit}
+        return {"exe": "", "os": "linux", "platform": "linux", "bit": bit, "is_posix": is_posix}
     if platform == "darwin":
         bit = 64 if "x86_64" in os.popen("uname -m").read() else 32
-        return {"exe": "", "os": "macos", "platform": "mac", "bit": bit}
+        return {"exe": "", "os": "macos", "platform": "mac", "bit": bit, "is_posix": is_posix}
 
 
 def rename_file(path_to_last_file, new_name, *, use_origin_folder=False):
@@ -834,6 +848,7 @@ class BasicTypes:
 
     @staticmethod
     def pnn_ci(number, plus="+", only_orange=False, permit_fixe=True, *, reseau=None):
+        original = str(number)
         number = str(number).replace(" ", "").replace("-", "")
 
         nums = {
@@ -885,7 +900,26 @@ class BasicTypes:
                         if extension in nums.get(num):
                             return plus + "225" + num + check[1]
             elif extension in ("7,07,27" + ("" if only_orange else ",21,25,1,01,5,05")).split(","):
+                if not permit_fixe and int(extension) >= 20:
+                    return None
                 return plus + "225" + f"{extension:0>2}" + check[1]
+        if any([d in "-\\/" for d in original]):
+            for number in re.split(r"[-\\/]", original):
+                check = BasicTypes.pnn_ci(number, plus, only_orange=only_orange, permit_fixe=permit_fixe, reseau=reseau)
+                if check:
+                    return check
+
+        if re.match(r"\d{8,}", number):
+            number = ""
+            for car in original:
+                if car.isnumeric():
+                    number += car
+                elif len(number) >= 8:
+                    check = BasicTypes.pnn_ci(number, plus, only_orange=only_orange, permit_fixe=permit_fixe,
+                                              reseau=reseau)
+                    if check:
+                        return number
+                    number = ""
         return None
 
     @staticmethod

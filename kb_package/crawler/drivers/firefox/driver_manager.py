@@ -1,3 +1,4 @@
+from __future__ import annotations
 import re
 import sys
 import os
@@ -6,7 +7,8 @@ from typing import Union
 
 import bs4
 import requests
-from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
+from selenium.webdriver import FirefoxOptions
+from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 
 from kb_package import tools
 from kb_package.crawler.custom_driver import CustomDriver
@@ -48,6 +50,7 @@ class DriverManager(ParentDriverManager):
     def find_navigator_version(self):
         platform = sys.platform
         if platform == "linux":
+            self.FIREFOX_BINARY = "firefox"
             return os.popen("firefox --version").read().strip().split(" ")[
                 -1]
 
@@ -67,6 +70,7 @@ class DriverManager(ParentDriverManager):
             return os.popen(cmd).read().strip().split(" ")[-1]
 
         elif platform == "darwin":
+            self.FIREFOX_BINARY = '/Applications/Firefox.app'
             return os.popen(
                 'mdls -name kMDItemVersion '
                 '/Applications/Firefox.app | tr -d "."').read().strip()
@@ -166,28 +170,21 @@ class DriverManager(ParentDriverManager):
 
     def extra_args(self, **kwargs):
         extra_args = super().extra_args(**kwargs)
-        binary = kwargs.get("binary_location", None)
-        if binary:
-            extra_args["firefox_binary"] = FirefoxBinary(binary)
+        remote_debugging = kwargs.get("remote_debugging")
+        remote_debugging, port = remote_debugging.split(":")
+        port = int(port)
 
+        if not (remote_debugging.endswith(("localhost", "127.0.0.1")) and port == 0):
+            service_args = ['--marionette-port', "2828", '--connect-existing']
+            extra_args["service_args"] = service_args
         return extra_args
 
     def get_options(self, **kwargs):
-        options = self.get_default_options(**kwargs)
-        if "binary_location" not in kwargs and sys.platform == "win32":
-            if self.FIREFOX_BINARY is None:
-                self.FIREFOX_BINARY = tools.search_file("firefox.exe",
-                                                        "Mozilla Firefox",
-                                                        from_path="C:\\",
-                                                        depth=3)
-            options.binary_location = self.FIREFOX_BINARY
-        return options
-
-    def get_profile(self, **kwargs):
-        profile = self.get_default_profile(**kwargs)
-
-        user_agent = kwargs.get("default_ua", None)
+        options: "FirefoxOptions" = self.get_default_options(**kwargs)
+        options.accept_insecure_certs = True
+        user_agent = kwargs.get("default_ua")
         need_authentication = kwargs.get("need_authentication", False)
+        driver_profil = kwargs.get("driver_profil")
 
         use_cache = kwargs.get("use_cache", True)
         use_image = kwargs.get("use_image", False)
@@ -200,6 +197,15 @@ class DriverManager(ParentDriverManager):
 
         custom_preferences = kwargs.get("custom_preferences", {})
 
+        if 'binary_location' in kwargs:
+            self.FIREFOX_BINARY = kwargs.get('binary_location')
+        if self.FIREFOX_BINARY is None:
+            version = self.find_navigator_version
+        options.binary_location = self.FIREFOX_BINARY
+
+        if driver_profil and os.path.exists(driver_profil):
+            options.set_preference("profile", os.path.normpath(driver_profil))
+
         # cache config setting
         # cache config
         if isinstance(use_cache, dict):
@@ -207,63 +213,73 @@ class DriverManager(ParentDriverManager):
         else:
             use_cache = {k: bool(use_cache) for k in ["disk", "memory"]}
         for k, v in use_cache.items():
-            profile.set_preference(f"browser.cache.{k}.enable", v)
-        profile.set_preference("network.http.use-cache", bool(use_cache))
+            options.set_preference(f"browser.cache.{k}.enable", v)
+        options.set_preference("network.http.use-cache", bool(use_cache))
+        options.set_preference("browser.startup.homepage", "about:blank")
 
+        # for proxy that need manual authentication
         if need_authentication:
-            profile.set_preference("xpinstall.signatures.required", False)
+            options.set_preference("xpinstall.signatures.required", False)
+
         # images
-        profile.set_preference(
+        options.set_preference(
             "permissions.default.image", 2 if not use_image else 1
         )
         # Flash
-        profile.set_preference(
+        options.set_preference(
             "dom.ipc.plugins.enabled.libflashplayer.so",
             "true" if use_flash else "false"
         )
         # css
-        profile.set_preference(
+        options.set_preference(
             "permissions.default.stylesheet", 2 if not use_css else 1
         )
 
         # js
-        profile.set_preference(
+        options.set_preference(
             "javascript.enabled", "true" if use_js else "false"
         )
 
         # user agent
         if user_agent is not None:
-            profile.set_preference(
+            options.set_preference(
                 "general.useragent.override", user_agent
             )
-
         for k, v in custom_preferences:
-            profile.set_preference(k, v)
-
+            options.set_preference(k, v)
         # Auto download of files
-        profile.set_preference("browser.download.folderList", 2)
-        profile.set_preference("browser.helperApps.alwaysAsk.force",
+        options.set_preference("browser.download.folderList", 2)
+        options.set_preference("browser.helperApps.alwaysAsk.force",
                                False)
-        profile.set_preference(
+
+        # extend list of download element
+        options.set_preference(
             "browser.helperApps.neverAsk.saveToDisk",
             "application/pdf;application/zip;application/x-bzip;"
             "application/octet-stream;multipart/x-zip;"
             "application/zip-compressed;application/x-zip-compressed")
-        profile.set_preference(
+        options.set_preference(
             "browser.download.manager.showWhenStarting", False)
         # Change default directory for downloads
-        profile.set_preference("browser.download.dir", download_path)
+        options.set_preference("browser.download.dir", download_path)
 
         # Don't show PDF in the navigator viewer
         if disable_pdf_reader:
-            profile.set_preference(
+            options.set_preference(
                 "plugin.disable_full_page_plugin_for_types",
                 "application/pdf")
-            profile.set_preference("pdfjs.disabled", True)
+            options.set_preference("pdfjs.disabled", True)
 
-        profile.update_preferences()
+        remote_debugging = kwargs.get("remote_debugging")
+        remote_debugging, port = remote_debugging.split(":")
+        port = int(port)
+        if not (remote_debugging.endswith(("localhost", "127.0.0.1")) and port == 0):
 
-        return profile
+            profile = FirefoxProfile(kwargs.get("user_data_dir"))
+            profile.default_preferences.update(options.preferences)
+            profile.update_preferences()
 
-    def get_desired_capabilities(self, **kwargs):
-        return self.get_default_desired_capabilities(**kwargs)
+            options._custom_argument = ["--marionette", "--start-debugger-server", "2828", "--profile",
+                                        profile.path]
+
+        return options

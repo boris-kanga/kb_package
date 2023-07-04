@@ -1,3 +1,6 @@
+Crawler:
+    issue with chrome when try to define default download folder when user_data_dir is defined and using existing chrome instance
+
 EmailApi:
     Parse html code for detect all <img src=""> where the source is not on internet[local image] and transfrom them to base64 image
 

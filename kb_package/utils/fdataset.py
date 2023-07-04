@@ -54,6 +54,7 @@ class DatasetFactory:
             self.__source = self.from_file(dataset, **kwargs).dataset
         else:
             columns = self._parse_columns_arg(kwargs.get("columns"), dataset.columns)
+
             if columns is not None:
                 dataset = dataset.loc[:, columns.keys()]
                 dataset.rename(columns=columns, inplace=True)

@@ -4,7 +4,9 @@ import traceback
 import pandas
 
 from kb_package.utils.fdataset import DatasetFactory
-from kb_package.tools import CModality, Cdict, read_json_file
+from kb_package.utils.cmodality import CModality
+from kb_package.tools import Cdict, read_json_file
+
 import requests
 from urllib.parse import quote_plus as quote
 from bs4 import BeautifulSoup

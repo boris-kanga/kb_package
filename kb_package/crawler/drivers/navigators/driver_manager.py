@@ -1,4 +1,5 @@
 import os
+import re
 
 from typing import Union
 
@@ -12,9 +13,22 @@ class DriverManager:
     PATH = os.path.dirname(__file__)
     PATH_TO_REF = None
 
+    def __init__(self, **kwargs):
+        self.options = None
+        self.profile = None
+
     @property
     def find_navigator_version(self):
         return None
+
+    def generate_webdriver_exe(self, n_version: Union[int, str] = None):
+        yield None
+
+    def install(self, n_version: Union[int, str] = None):
+        exe_path = self.generate_webdriver_exe(n_version=n_version).__next__()
+        assert exe_path is not None, f"Fail to install " + \
+               (f'[for version {n_version}]' if n_version is not None else '')
+        return exe_path
 
     def get_default_desired_capabilities(self, **kwargs):
         desired_capabilities = kwargs.get("desired_capability", None)
@@ -27,21 +41,6 @@ class DriverManager:
             desired_capabilities["acceptInsecureCerts"] = True
 
         return desired_capabilities
-
-    def generate_webdriver_exe(self, n_version: Union[int, str] = None):
-        yield None
-
-    def install(self, n_version: Union[int, str] = None):
-        exe_path = self.generate_webdriver_exe(n_version=n_version).__next__()
-        assert exe_path is not None, f"Fail to install " + \
-               (f'[for version {n_version}]' if n_version is not None else '')
-        return exe_path
-
-    def get_default_profile(self, **kwargs):
-        profile = None
-        if str(self.NAME).lower() == "firefox":
-            profile = webdriver.FirefoxProfile()
-        return profile
 
     def extra_args(self, **kwargs):
         return {}
@@ -66,19 +65,29 @@ class DriverManager:
                     "--start-maximized",
                 ]
             )
+            final_driver_options_argument = []
             for arg in driver_options_argument:
-                if not arg.startswith("-"):
-                    driver_options_argument.append("--" + str(arg))
-            driver_options_argument = list(set(driver_options_argument))
+                # print(arg)
+                if arg:
+                    arg = "--" + re.sub("^-{1,2}", "", arg)
+                    if arg == "--headless":
+                        headless = True
+                        continue
+                    final_driver_options_argument.append(arg)
+            driver_options_argument = list(set(final_driver_options_argument))
 
             options = options_class()
             for arg in driver_options_argument:
                 options.add_argument(arg)
         options.headless = headless
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-extensions")
+        # options.add_argument("--disable-extensions")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--homepage=about:blank")
         # options.add_argument("--disable-infobars")
+        # certificat checking https://cacert.org
+        options.accept_insecure_certs = True
         if binary_location is not None:
-            print(binary_location)
             options.binary_location = binary_location
+        self.options = options
         return options

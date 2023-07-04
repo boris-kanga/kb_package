@@ -1,0 +1,31 @@
+{
+    "name": "Manifest KB_PACKAGE_BYPASS",
+    "version": "1.0.0",
+    "manifest_version": 3,
+    "declarative_net_request": {
+       "rule_resources": [{
+          "id": "ruleset_1",
+          "enabled": true,
+          "path": "blocking_rules.json"
+       }]
+    },
+    "host_permissions": [
+        "http://*/*",
+        "https://*/*"
+    ],
+    "permissions": [
+        "proxy",
+        "tabs",
+        "unlimitedStorage",
+        "declarativeNetRequest",
+        "storage",
+        "webRequest",
+        "browsingData",
+        "downloads",
+        "notifications",
+        "https://*/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    }
+}

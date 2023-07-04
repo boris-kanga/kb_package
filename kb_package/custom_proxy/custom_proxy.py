@@ -34,10 +34,10 @@ class CustomProxy:
     def __str__(self):
         if not self:
             return ""
-        string = ""
+        _string = ""
         if self.need_authentication:
-            string = "%s:%s@" % (self["user"],self["pwd"])
-        return "%s%s:%s" % (string, self["host"], self["port"])
+            _string = "%s:%s@" % (self["user"], self["pwd"])
+        return "%s%s:%s" % (_string, self["host"], self["port"])
 
     @staticmethod
     def _parse(value: Union[str, dict, int]) -> dict:

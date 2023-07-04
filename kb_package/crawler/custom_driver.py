@@ -3,16 +3,18 @@
 The CustomDriver helper.
 Use to create selenium web driver with a specific configuration
 """
-import json
+import atexit
 import random
 import re
 import shutil
+import subprocess
 import time
 import importlib
 import os
 import traceback
 import typing
 from contextlib import contextmanager
+import signal
 
 
 try:
@@ -21,6 +23,7 @@ except (ImportError, Exception):
     class UserAgent:
         pass
 from selenium import webdriver
+from selenium.webdriver.common.by import By as SelectBy
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.proxy import Proxy, ProxyType
 from selenium.webdriver.support import expected_conditions as EC
@@ -39,6 +42,8 @@ except ImportError:
 
     CustomLogger = logging.getLogger
 
+REGISTERED = []
+
 
 def _get_default_navigator():
     folder = os.path.join(os.path.dirname(__file__), "drivers")
@@ -47,7 +52,7 @@ def _get_default_navigator():
         if not os.path.isdir(os.path.join(folder, nav)) or nav.startswith("__"):
             continue
         try:
-            print(nav)
+            # print(nav)
             driver_manager = getattr(importlib.import_module(
                 "kb_package.crawler.drivers.%s.driver_manager"
                 % nav),
@@ -84,8 +89,11 @@ class CustomDriver:
         self.origin_tab = None
         self.logger = kwargs.get("logger") or CustomLogger("CustomDriver")
 
+    @property
+    def get_download_folder(self):
+        return self._kwargs.get("download_folder", os.getcwd())
+
     def create(self, *args, **kwargs):
-        print("in create", self._driver)
         if self._driver is not None:
             return
         self._driver = CustomDriver.create_driver(
@@ -200,10 +208,13 @@ class CustomDriver:
                     path = os.path.join(dir_, f"screenshot_{i}.png")
                     screenshots_files_list.append(path)
                     driver.save_screenshot(path)
-                    time.sleep(0.2)
+                    # time.sleep(0.2)
         except:
             pass
         return screenshots_files_list
+
+    def js(self, script, *args, **kwargs):
+        return self._driver.execute_script(script, *args, **kwargs)
 
     def sleep_until_load(
             self, max_try=3,
@@ -286,21 +297,23 @@ class CustomDriver:
         last_tabs_open = driver.window_handles
 
         wait = WebDriverWait(driver, 10)
-        if driver.desired_capabilities["browserName"] == \
-                CustomDriver.SET_OF_NAVIGATOR[CustomDriver.FIREFOX]:
-            driver.execute_script(f"""
-                if (document.querySelector(
-                        "#kbp-open-link-identifier")!=null) return;
-                let a=document.createElement("a"); 
-                a.id="kbp-open-link-identifier";
-                document.querySelector("body").appendChild(a);
-                a.href='{for_url}';
-            """)
-            driver.find_element_by_css_selector(
-                "#kbp-open-link-identifier").send_keys(
-                Keys.CONTROL + Keys.RETURN)
-        else:
-            driver.execute_script(f"window.open('{for_url}');")
+
+        driver.execute_script(f"""
+            if (document.querySelector(
+                    "#kbp-open-link-identifier")!=null) return;
+            let a=document.createElement("a"); 
+            a.id="kbp-open-link-identifier";
+            a.style=`width:100%!important;height:100%!important;
+                position:absolute!important;top:0!important;left:0!important;
+                background:#eeee;
+                display:block!important`;
+            document.querySelector("body").appendChild(a);
+            a.href='{for_url}';
+        """)
+        link = driver.find_element(by=SelectBy.ID, value="kbp-open-link-identifier")
+        link.send_keys(Keys.CONTROL + Keys.RETURN)
+        driver.execute_script('document.querySelector("#kbp-open-link-identifier").style.display="none";')
+
         wait.until(EC.number_of_windows_to_be(len(last_tabs_open) + 1))
         # self.driver.set_page_load_timeout(timeout_infos["page_load_timeout"])
         new_tab_id = [tab for tab in driver.window_handles if
@@ -335,22 +348,20 @@ class CustomDriver:
     @staticmethod
     def _get_driver(
             options,
-            desired_capabilities,
-            profile=None,
             executable_path=None,
             logger=CustomLogger("CustomDriver"),
             extensions: list = None,
+            keep_alive=True,
             max_try=1,
             sleep_time=5,
             maximize=True,
-            extra_args=None
+            **kwargs
     ):
         """
-        Use to create web driver using options, desired_capabilities and/or
+        Use to create web driver using options
         profile
         Args:
             options: webDriver.Options
-            desired_capabilities: webDriver.DesiredCapabilities
             profile: webDriver.FirefoxProfile or None
             executable_path: str, path webDriver exe
             logger: logger
@@ -362,30 +373,29 @@ class CustomDriver:
         Returns: web driver
 
         """
-        assert desired_capabilities["browserName"] \
-               in CustomDriver.SET_OF_NAVIGATOR.values()
+        desired_capabilities = options.to_capabilities()
+        nav = desired_capabilities["browserName"].lower()
+        service = getattr(importlib.import_module("selenium.webdriver.%s.service" % nav), "Service")(
+            executable_path=executable_path, **kwargs)
+
+        assert nav in CustomDriver.SET_OF_NAVIGATOR.values()
         driver = None
-        if not isinstance(extra_args, dict):
-            extra_args = {}
         for _ in range(max_try):
             try:
-                if (
-                        desired_capabilities["browserName"]
-                        == CustomDriver.SET_OF_NAVIGATOR[CustomDriver.FIREFOX]
-                ):
+                if nav == CustomDriver.SET_OF_NAVIGATOR[CustomDriver.FIREFOX]:
                     driver = webdriver.Firefox(
+                        service=service,
                         options=options,
-                        desired_capabilities=desired_capabilities,
-                        firefox_profile=profile,
-                        executable_path=executable_path,
-                        **extra_args
+                        keep_alive=keep_alive
                     )
-
                     for extension in (extensions or []):
                         driver.install_addon(extension["path"],
                                              temporary=True)
+
                     # check if extensions is really installed
                     driver.get("about:support")
+                    wait = WebDriverWait(driver, 10)
+                    wait.until(EC.presence_of_element_located((SelectBy.ID, "addons-tbody")))
                     addons = driver.execute_script("""
                         return [...document.querySelectorAll(
                         '#addons-tbody tr')].map(tr=>{
@@ -412,21 +422,26 @@ class CustomDriver:
                 else:
                     for extension in (extensions or []):
                         options.add_extension(extension["path"])
-                    driver = webdriver.Chrome(
-                        options=options,
-                        desired_capabilities=desired_capabilities,
-                        executable_path=executable_path,
-                        **extra_args
-                    )
 
-                if maximize:
-                    driver.maximize_window()
+                    driver = webdriver.Chrome(
+                        service=service,
+                        options=options,
+                        keep_alive=keep_alive
+                    )
+                    if options.headless:
+                        CustomDriver._configure_headless(driver, logger.info)
+                try:
+                    if maximize:
+                        driver.maximize_window()
+                except:
+                    pass
                 return driver
 
             except Exception as e:
                 logger.exception(e)
-                logger.info("Driver creation failed, retry in %s", sleep_time)
-                time.sleep(sleep_time)
+                if sleep_time > 0:
+                    logger.info("Driver creation failed, retry in %s", sleep_time)
+                    time.sleep(sleep_time)
                 try:
                     driver.close()
                 except AttributeError:
@@ -467,14 +482,17 @@ class CustomDriver:
                     default None (No custom_proxy use}
 
                 headless: bool, For navigation headless, default False
+                remote_debugging: str(host:port) default None,
+                auto_remote_debug bool, Default False
+                port: int , is about remote_debugging port
                 user_agent: str, default None
                 random_user_agent: bool, if True, generate random user agent,
                     default True
                 use_cache: bool|dict, default True
                 use_image: bool, default False mean images are disable for the
                     driver
-                use_js: bool, default True mean javascript is enable
-                use_css: bool, default True mean css is enable
+                use_js: bool, default True mean javascript is enabled
+                use_css: bool, default True mean css is enabled
                 use_flash: bool, default True mean flash is enable. This option
                     is only consider for firefox driver
                 binary_location: path, location of the navigator apps,
@@ -512,7 +530,20 @@ class CustomDriver:
             assert navigator in CustomDriver.SET_OF_NAVIGATOR, error_navigator
             navigator_str = CustomDriver.SET_OF_NAVIGATOR[navigator]
         kwargs["headless"] = kwargs.get("headless", bool(os.environ.get("CUSTOM-DRIVER-HEADLESS")))
+
+        # remote debugging
+        port = int(kwargs.get("port") or 0)
+        remote_debugging = kwargs.get("remote_debugging", "127.0.0.1:%d" % port)
+        remote_debugging, port = remote_debugging.split(":")
+        port = int(port)
+
+        if kwargs.get("auto_remote_debug", True):
+            if remote_debugging.endswith(("localhost", "127.0.0.1")) and port == 0:
+                port = tools.free_port()
+        kwargs["remote_debugging"] = "%s:%s" % (remote_debugging, port)
+
         default_executable_path = None
+        # for proxy that need authentication
         plugin_file = str(os.getpid()) + "-plugin."
         plugin_extension = "xpi"
         if navigator == CustomDriver.CHROME:
@@ -521,7 +552,8 @@ class CustomDriver:
         elif navigator == CustomDriver.FIREFOX:
             default_executable_path = "geckodriver"
         plugin_file += plugin_extension
-        auto_exe_path = kwargs.get("auto_exe_path", False)
+        # auto calculation of executable_path
+        auto_exe_path = kwargs.get("auto_exe_path", True)
         n_version = kwargs.get("n_version", None)
         executable_path = kwargs.get(
             "executable_path", default_executable_path if
@@ -530,8 +562,7 @@ class CustomDriver:
 
         proxy_val = kwargs.get("proxy_val", None)
         custom_proxy = CustomProxy(proxy_val)
-        random_user_agent = kwargs.get(
-            "random_user_agent",True)
+        random_user_agent = kwargs.get("random_user_agent", True)
         ua = None
 
         if random_user_agent:
@@ -549,44 +580,59 @@ class CustomDriver:
             % navigator_str),
             "DriverManager")()
 
-        options = driver_manager.get_options(**kwargs)
-        profile = driver_manager.get_profile(**kwargs)
-        desired_capabilities = driver_manager.get_desired_capabilities(
-            **kwargs)
+        options: "webdriver.ChromeOptions" = driver_manager.get_options(**kwargs)
+        options.page_load_strategy = "eager"
+        # desired_capabilities = driver_manager.get_desired_capabilities(**kwargs)
         extra_args = driver_manager.extra_args(**kwargs)
 
-        if custom_proxy:
+        if remote_debugging.endswith(("localhost", "127.0.0.1")) and port == 0:
+            pass
+        else:
+            popen_args = list(set("--" + str(x) if not str(x).startswith("--") and "=" in str(x)
+                                  else str(x) for x in options.arguments))
+            popen_args += getattr(options, "_custom_argument", [])
+            print([options.binary_location, *popen_args])
+            browser = subprocess.Popen(
+                [options.binary_location, *popen_args],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                close_fds=True,
+            )
 
+            REGISTERED.append(browser.pid)
+
+        if custom_proxy:
             driver_proxy = Proxy()
             driver_proxy.proxy_type = ProxyType.MANUAL
 
             if custom_proxy.need_authentication:
-                plugin_path = CustomDriver.PLUGIN_DIR
-                plugin_file = os.path.join(plugin_path, plugin_file)
-                manifest_file = os.path.join(plugin_path, "manifest.json")
-                background_file = os.path.join(plugin_path, "background.js")
-
+                # installing my custom extension "Manifest KB_PACKAGE_BYPASS"
+                v2_or_v3 = "v2" if navigator_str == "firefox" else "v3"
+                plugin_path = os.path.join(CustomDriver.PLUGIN_DIR, v2_or_v3)
+                plugin_file = os.path.join(CustomDriver.PLUGIN_DIR, plugin_file)
+                assert "manifest.json" in os.listdir(plugin_path)
                 import zipfile
-                manifest_file = tools.read_json_file(manifest_file)
-                manifest_name = manifest_file["name"]
-                with open(background_file) as background:
-                    background_js = background.read() % custom_proxy.get()
                 with zipfile.ZipFile(plugin_file, 'w') as zp:
-                    zp.writestr("manifest.json", json.dumps(manifest_file))
-                    zp.writestr("background.js", background_js)
+                    for file in os.listdir(plugin_path):
+                        with open(os.path.join(plugin_path, file)) as extra_plugin_file:
+                            if file.lower() == "background.js":
+                                zp.writestr("background.js", extra_plugin_file.read() % custom_proxy.get())
+                            elif file.lower().endswith((".json", "js")):
+                                zp.writestr(file, extra_plugin_file.read())
                 plugin_file = os.path.realpath(plugin_file)
-                extensions = [{"name": manifest_name, "path": plugin_file}]
+                extensions = [{"name": "Manifest KB_PACKAGE_BYPASS", "path": plugin_file}]
             else:
-
                 for k in ["http_proxy", "sslProxy"]:
                     setattr(driver_proxy, k, str(custom_proxy))
-            driver_proxy.add_to_capabilities(desired_capabilities)
+            # failed to change window state to 'normal', current state is 'maximized'
+            options.proxy = driver_proxy
 
         if auto_exe_path and executable_path is None:
-
+            last_exception = None
             for executable_path in driver_manager.generate_webdriver_exe(
                     n_version=n_version):
-                print(executable_path)
+                logger.info('got executable_path:', executable_path)
                 try:
                     os.chmod(executable_path, 0o755)
                 except (PermissionError, Exception):
@@ -594,134 +640,43 @@ class CustomDriver:
                 try:
                     return CustomDriver._get_driver(
                         options=options,
-                        desired_capabilities=desired_capabilities,
-                        profile=profile,
                         executable_path=executable_path,
                         logger=logger,
                         extensions=extensions,
                         max_try=1,
                         sleep_time=0,
-                        extra_args=extra_args
+                        **extra_args
                     )
-                except:
-                    pass
-            raise Exception("Driver creation fail")
+                except Exception as ex:
+                    last_exception = ex
+            raise last_exception
 
         else:
             return CustomDriver._get_driver(
                 options=options,
-                desired_capabilities=desired_capabilities,
-                profile=profile,
                 executable_path=executable_path,
                 logger=logger,
                 extensions=extensions,
-                extra_args=extra_args
+                **extra_args
             )
+
+    @staticmethod
+    def _configure_headless(driver, info=print):
+        pass
+
+
+@atexit.register
+def _exit():
+    for pid in REGISTERED:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except:
+            pass
 
 
 if __name__ == "__main__":
+    d = CustomDriver(navigator="chrome", use_image=False)
+    d.create()
+    d.get("https://google.com")
+    time.sleep(10000)
 
-    from selenium.webdriver.common.by import By
-
-    USER_ID = "id"
-    USER_PWD = "pass"
-    URL = "https://lite-1x4635600.top/fr/othergames?product=849"
-    URL_auth = "https://lite-1x4635600.top/fr/othergames"
-    FILE = "coef.txt"
-
-    driver = CustomDriver.create_driver(navigator="firefox",
-                                        auto_exe_path=True,
-                                        use_image=True)
-    wait = WebDriverWait(driver, 5 * 60)
-    while True:
-        try:
-            driver.get(URL_auth)
-            time.sleep(5)
-            print("Url got")
-            driver.execute_script("""
-                    document.querySelector(
-                        ".user-control-panel__group--auth button").click()
-                    """)
-            print("click on connection button")
-            break
-        except:
-            print("Une erreur s'est produite")
-            time.sleep(1)
-
-    wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, ".auth-form-fields")))
-    time.sleep(5)
-    print("auth form is now open")
-    user = driver.find_element_by_css_selector(
-        ".auth-form-fields input.input-field")
-    user.send_keys(USER_ID)
-    print("user is send")
-    time.sleep(5)
-
-    pass_ = driver.find_element_by_css_selector(
-        ".auth-main__form div:nth-child(3) input")
-    pass_.send_keys(USER_PWD)
-    print("pass is send")
-    time.sleep(5)
-
-    driver.execute_script("""
-    document.querySelector(
-        ".auth-form-fields button[type=submit]").click();
-    """)
-    print("auth form is now submitted")
-
-    time.sleep(20)
-    while True:
-        try:
-            with open(FILE, "w") as file:
-                file.write("")
-            driver.get(URL)
-            print("URL got")
-            iframe = wait.until(EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "#game_place_game")))
-            driver.switch_to.frame(iframe)
-            wait.until(EC.presence_of_element_located(
-                (By.CSS_SELECTOR, ".payouts-block")))
-            print("Le jeu s'est affiché")
-
-            last_value = driver.execute_script("""
-                            return document.querySelector(".payouts-block").innerText
-                        """)
-            last_value = last_value.split("\n")
-            last_value = [float(x.split("x")[0]) for x in last_value[::-1]]
-            print("got last values", last_value)
-            with open(FILE, "w") as file:
-                file.writelines([str(x) + "\n" for x in last_value])
-            nb_of_new = None
-            iter_index = 0
-            while True:
-                not_present = None
-                while not_present is None:
-                    not_present = driver.execute_script("""
-                    let d = document.querySelector(".dom-container .flew-coefficient");
-                    return d==null? null: d.innerText""")
-                    if not_present is None:
-                        time.sleep(1)
-                print("got new value for index", iter_index, ":", not_present)
-                try:
-                    not_present = float(not_present.split("x")[0])
-                except:
-                    not_present = 0
-                last_value.append(not_present)
-                print("En attente de la prochaine partie")
-                wait.until(EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, ".dom-container .bet-timer")))
-                print("Lancement du nouveau jeu ...")
-                if isinstance(nb_of_new, int) and iter_index > nb_of_new:
-                    break
-                iter_index += 1
-                with open(FILE, "a") as file:
-                    file.write(str(not_present) + "\n")
-        except KeyboardInterrupt:
-            print("Aurevoir")
-            driver.close()
-            break
-        except:
-            traceback.print_exc()
-            print("Une erreur s'est produite, On réessaie dans 10 secondes")
-            time.sleep(10)

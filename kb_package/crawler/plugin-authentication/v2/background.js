@@ -9,8 +9,15 @@ var config = {
         bypassList: []
         }
     };
+var _browser = null;
+try{
+    if (!!browser.proxy) _browser=browser;
+    else _browser = chrome;
+}catch(e){
+    _browser = chrome
+}
 
-(chrome||browser).proxy.settings.set({value: config, scope: "regular"}, function() {});
+_browser.proxy.settings.set({value: config, scope: "regular"}, function() {});
 
 function callbackFn(details) {
     return {
@@ -21,7 +28,7 @@ function callbackFn(details) {
     };
 }
 
-(chrome||browser).webRequest.onAuthRequired.addListener(
+_browser.webRequest.onAuthRequired.addListener(
             callbackFn,
             {urls: ["<all_urls>"]},
             ['blocking']
@@ -34,4 +41,4 @@ function proxyRequest(request_data) {
         port: parseInt(%(port)s)
     };
 }
-(browser||chrome).proxy.onRequest.addListener(proxyRequest, {urls: ["<all_urls>"]});
+_browser.proxy.onRequest.addListener(proxyRequest, {urls: ["<all_urls>"]});
