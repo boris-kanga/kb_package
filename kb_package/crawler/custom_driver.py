@@ -538,7 +538,7 @@ class CustomDriver:
         port = int(port)
 
         if kwargs.get("auto_remote_debug", True):
-            if remote_debugging.endswith(("localhost", "127.0.0.1")) and port == 0:
+            if remote_debugging.startswith(("localhost", "127.0.0.1")) and port == 0:
                 port = tools.free_port()
         kwargs["remote_debugging"] = "%s:%s" % (remote_debugging, port)
 
@@ -677,6 +677,6 @@ def _exit():
 if __name__ == "__main__":
     d = CustomDriver(navigator="chrome", use_image=False)
     d.create()
-    d.get("https://google.com")
+    d.get("https://speed.hetzner.de/100MB.bin")
     time.sleep(10000)
 

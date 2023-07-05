@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 All generals customs tools we develop.
-they can be use in all the project
+they can be used in all the project
 """
 import inspect
 import json

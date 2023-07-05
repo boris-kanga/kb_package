@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 from collections.abc import Iterable
 import kb_package.tools as tools
 import pandas
@@ -86,6 +87,10 @@ class CModality:
 
         self._infinite = max([1000*(len(d)+2) for d in self._all_modal])
 
+        self._cache_key = str(os.urandom(24).hex())
+        if self._cache_key not in __cache__:
+            __cache__[self._cache_key] = {}
+
     def _retrieve(self, modal_item, key=None):
         if key is None and self._key != [None]:
             for k in self._key:
@@ -106,10 +111,10 @@ class CModality:
                 return []
             return default
         original = check
-        if original in __cache__:
+        if original in __cache__[self._cache_key]:
             if multiple:
-                return [__cache__[original]]
-            return __cache__[original]
+                return [__cache__[self._cache_key][original]]
+            return __cache__[self._cache_key][original]
         check = tools.format_var_name(check, remove_accent=True, min_length_word=3, default=check)
         check = str(check).lower()
         best_candidates = []
@@ -117,10 +122,10 @@ class CModality:
             res = self._regex_obj[k].search(check)
             if res:
                 check = res.groups()[0]
-                __cache__[original] = self._retrieve(check, key=k)
+                __cache__[self._cache_key][original] = self._retrieve(check, key=k)
                 if multiple:
-                    return [__cache__[original]]
-                return __cache__[original]
+                    return [__cache__[self._cache_key][original]]
+                return __cache__[self._cache_key][original]
             check_len = len(check)
             all_modalities = sorted(self._modalities[k],
                                     key=lambda x: self._infinite if len(x) == check_len else (
@@ -154,13 +159,15 @@ class CModality:
                 if score >= threshold:
                     best_candidates.append([res])
         if multiple:
+            if best_candidates:
+                __cache__[self._cache_key][original] = self._retrieve(best_candidates[0][0])
             return [self._retrieve(d[0]) for d in best_candidates]
         if len(best_candidates):
             res, _, _ = CModality.best_similarity(check, best_candidates, threshold=threshold)
-            __cache__[original] = self._retrieve(res)
-            return __cache__[original]
-        __cache__[original] = default
-        return __cache__[original]
+            __cache__[self._cache_key][original] = self._retrieve(res)
+            return __cache__[self._cache_key][original]
+        __cache__[self._cache_key][original] = default
+        return __cache__[self._cache_key][original]
 
     @staticmethod
     def best_similarity(text, candidates, threshold=EQUALITY_THRESHOLD):
