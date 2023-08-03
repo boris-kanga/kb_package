@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <base href="/static/">
+    <title>PUSH GENERATOR</title>
+    <script src="{{ url_for('static', filename='js/jquery-3.4.1.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/global-web-js.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/kbnotificator.js') }}"></script>
+    <link rel="apple-touch-icon" sizes="180x180" href= "{{ url_for('static', filename='images/favicon/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon/favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='images/favicon/favicon-16x16.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='images/favicon/site.webmanifest') }}">
+    <meta name="theme-color" content="#ffffff">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style-global.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <script src="{{ url_for('static', filename='js/ace.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mode-sql.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme-dracula.js') }}"></script>
+
+
+    <script src="{{ url_for('static', filename='js/ext-language_tools.js') }}"></script>
+        <!--<script src="{{ url_for('static', filename='js/require.js') }}"></script> -->
+    <script>
+    define("DynHighlightRules", [], function(require, exports, module) {
+        "use strict";
+
+        var oop = require("ace/lib/oop");
+        var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
+
+        var DynHighlightRules = function() {
+            var keywordMapper = this.createKeywordMapper({
+                "keyword": "IF ELSE IN BETWEEN LIKE IS NOT AND OR INDEX",
+                "constant.language": "TRUE FALSE NULL",
+                "keyword.operator": "lower upper trim replace length substring to_number to_str pnn_ci"
+            }, "text", true, " ");
+
+            this.$rules = {
+                "start" : [
+                    {
+                        token: "string",
+                        start: '"',
+                        end: '"',
+                        next: [{ token : "constant.language.escape.lsl", regex : /\\[tn"\\]/}]
+                    },
+                    {token : "invalid", regex: "\\.{2,}"},
+                    {token : "keyword.operator", regex: /\W[\-+%=<>*]\W|\*\*|[~:,\.&$]|->*?|=>/},
+                    {token : "constant.numeric", regex: "[+-]?\\d+(\.\d*)?\\b"},
+                    {token : keywordMapper, regex : "\\b\\w+\\b"},
+                    {caseInsensitive: true}
+                ]
+            };
+            this.normalizeRules();
+        };
+
+        oop.inherits(DynHighlightRules, TextHighlightRules);
+
+        exports.DynHighlightRules = DynHighlightRules;
+
+    });
+</script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Architects+Daughter&display=swap');
+        :root{
+            --orange:#ff6600;
+            --kb-orange-light: #fadad8;
+            --dark: #000E;
+            --green: lightseagreen;
+            --green-light: #e4fafa;
+            --menu-width: 80px;
+            --header-height: 60px;
+        }
+        .form-control{
+            padding: 2px;
+            font-size: inherit;
+            padding-left: 5px;
+        }
+        a{ text-decoration:none!important;}
+        body, html{
+            margin:0;
+            color: var(--dark);
+            width:100%;
+            height: 100%;
+            background-color:#ecf2f450;
+            overflow: hidden;
+            /background-image: url({{ url_for('static', filename='images/bg/pattern-3.jpg') }});
+
+
+        }
+
+        #voile{
+            position: fixed;
+            z-index: 1000;
+            width: 100%;
+            height: 100%;
+            background: #0005;
+            display: flex; align-items:center; justify-content:center;
+        }
+        .hidden{display:none!important}
+        a, button{ transition-duration: 300ms;}
+
+
+        .loader{
+            position: absolute;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            background:#0005;
+            z-index: 100;
+            top:0;
+            left:0;
+            width:100%;
+            height: 100%;
+        }
+
+        @keyframes push-arrow-anim-keyframe{
+            from{
+                transform: translate(0);
+            }
+            to{
+                transform: translate(10px);
+            }
+        }
+        .push-arrow-anim{
+            animation: push-arrow-anim-keyframe infinite 300ms alternate;
+        }
+        @keyframes anim-copy{
+            from{
+                outline: 0px solid blue
+            }
+            to{
+                outline: 3px solid blue
+            }
+        }
+        .anim-copy-item{
+            animation: anim-copy infinite 300ms alternate;
+        }
+
+        .menu-item{
+            width: 100%; padding: 10px 5px;
+            display: flex; align-items: center; justify-content:center; align-content: space-around;
+            flex-direction:column;
+            border-radius: 5px;
+            cursor:pointer;
+            color: black!important;
+
+        }
+        .menu-item:hover, .menu-item.active{
+            background: var(--kb-orange-light);
+            color: var(--orange)!important;
+        }
+
+        .btn-orange{
+            background-color: var(--orange)!important;
+            color: #fff!important;
+            max-height: 30px;
+            min-height: 25px;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .btn-orange:hover{
+            background: #BB2201!important;
+        }
+        .btn-orange[data-disabled="disabled"]{
+            background-color: #ccc!important;
+        }
+        .unselectable{
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -webkit-touch-callout : none
+            -moz-user-select: none;
+            -o-user-select: none;
+            user-select: none;
+        }
+
+
+        /*Style 25*/
+        .toggler-wrapper {
+          display: block;
+          width: 45px;
+          height: 25px;
+          cursor: pointer;
+          position: relative;
+        }
+        .toggler-wrapper input[type="checkbox"] {
+          display: none;
+        }
+
+        .toggler-wrapper input[type="checkbox"]:checked+.toggler-slider {
+          background-color: #44cc66;
+        }
+        .toggler-wrapper .toggler-slider {
+          background-color: #ccc;
+          position: absolute;
+          border-radius: 100px;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          -webkit-transition: all 300ms ease;
+          transition: all 300ms ease;
+        }
+
+        .toggler-wrapper .toggler-knob {
+          position: absolute;
+          -webkit-transition: all 300ms ease;
+          transition: all 300ms ease;
+        }
+
+        .toggler-wrapper.style-7 input[type="checkbox"]:checked+.toggler-slider {
+          background-color: white;
+        }
+
+        .toggler-wrapper.style-7 input[type="checkbox"]:checked+.toggler-slider .toggler-knob {
+          left: calc(100% - 19px - 3px);
+          background-color: #44cc66;
+        }
+
+        .toggler-wrapper.style-7 .toggler-slider {
+          background-color: white;
+          -webkit-box-shadow: 2px 4px 8px rgba(200, 200, 200, 0.5);
+          box-shadow: 2px 4px 8px rgba(200, 200, 200, 0.5);
+          border-radius: 5px;
+        }
+
+        .toggler-wrapper.style-7 .toggler-knob {
+          width: calc(25px - 6px);
+          height: calc(25px - 6px);
+          border-radius: 5px;
+          left: 3px;
+          top: 3px;
+          background-color: #e6e6e6;
+        }
+
+        #voile strong{ font-size: 10px;}
+
+
+        #load-data-loader{
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0; left:0;
+            background: #0003;
+        }
+
+        select.error, input.error{
+            outline: 2px solid red;
+        }
+
+        .custom-select option:focus,
+        .custom-select option:active,
+        .custom-select option:checked
+        {
+            background: linear-gradient(var(--orange), var(--orange));
+            background-color: var(--orange) !important;
+            color: #fff;
+        }
+        .custom-select option:hover:not(:checked){
+            background: linear-gradient(var(--kb-orange-light), var(--kb-orange-light));
+            background-color: var(--kb-orange-light) !important;
+        }
+        .blur-hide-scroll{
+            z-index: 10;
+        }
+
+        .notif-copy{
+            position: absolute;
+            right: 15px;
+            background: #000;
+            color: var(--orange);
+            padding: 3px 10px;
+            font-size: 10px;
+            opacity: 0.8;
+            border-radius: 3px;
+            z-index: 100;
+        }
+
+    </style>
+
+</head>
+<body>
+
+    <div id="voile" class="hidden">
+
+    {% block voile %}{% endblock %}
+    </div>
+    <div style="display:flex; height: 100%" >
+        <div class="center-container" style="width:var(--menu-width); height: 100%; background: #fff; box-shadow:3px 1px 5px #eee; z-index:100; display: flex; position: relative;">
+            <div style="position: absolute; top: 0">
+                <div style="margin-top: 20px;">
+                    <img src="{{ url_for('static', filename='images/slogo_1.png') }}">
+                </div>
+
+            </div>
+            
+            <div class="center-container" style="flex-direction:column; align-content: space-between; padding: 5px; width: 90%">
+                <a href="/donnees" class="menu-item {{ 'active' if menu=='data' else '' }}">
+                    <svg width="30" height="30" viewBox="0 0 48 48" fill="none">
+                        <path d="M44.0001 11C44.0001 11 44 36.0623 44 38C44 41.3137 35.0457 44 24 44C12.9543 44 4.00003 41.3137 4.00003 38C4.00003 36.1423 4 11 4 11" stroke="black" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M44 29C44 32.3137 35.0457 35 24 35C12.9543 35 4 32.3137 4 29" stroke="black" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M44 20C44 23.3137 35.0457 26 24 26C12.9543 26 4 23.3137 4 20" stroke="black" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                        <ellipse cx="24" cy="10" rx="20" ry="6" fill="var(--orange)" stroke="black" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <small>Data</small>
+                </a>
+
+                <a href="/" class="menu-item {{ 'active' if menu=='index' else '' }}" style="margin-top: 10px; ">
+                    <svg width="35" height="35" viewBox="0 0 50 52">
+                        <g>
+                            <path d="M44,2H20c-2.2,0-4,1.8-4,4v0.1c0,0.7,0.4,1.4,1,1.8c0.3,0.2,4.1,4,4.1,4c0.3,0.3,0.8,0,0.8-0.4l0,0
+                                c0-0.8,0.7-1.6,1.5-1.6h17c0.8,0,1.6,0.8,1.6,1.6v27c0,0.8-0.8,1.4-1.6,1.4h-17c-0.8,0-1.4-0.6-1.4-1.4v-0.1c0-0.4-0.5-0.6-0.8-0.3
+                                c0,0-3.8,3.8-4.2,4c-0.6,0.4-1,1-1,1.8v2c0,2.2,1.7,4,3.9,4h24c2.2,0,4.1-1.8,4.1-4V6C48,3.8,46.2,2,44,2z M32,48c-1.7,0-3-1.3-3-3
+                                s1.3-3,3-3s3,1.3,3,3S33.7,48,32,48z"/>
+                            <path id="push-arrow" class="{{ 'push-arrow-anim' if server_is_running else '' }}" fill="var(--orange)" d="M27.6,23.9L15.1,11.4c-0.6-0.6-1.5-0.6-2.1,0l-2.1,2.1c-0.6,0.6-0.6,1.5,0,2.1l4.6,4.6
+                                c0.6,0.6,0.2,1.7-0.7,1.7H1.5C0.7,22,0,22.7,0,23.5v3C0,27.3,0.7,28,1.5,28h13.2c0.9,0,1.3,1.1,0.7,1.7l-4.6,4.6
+                                c-0.6,0.6-0.6,1.5,0,2.1l2.1,2.1c0.6,0.6,1.5,0.6,2.1,0L27.6,26C28.1,25.5,28.1,24.5,27.6,23.9z"/>
+                        </g>
+                    </svg>
+                    <small>Push</small>
+                </a>
+            </div>
+        </div>
+        <div class="base" style="width: calc(100% - var(--menu-width)); height: 100%; overflow-y: auto; overflow-x: hidden">
+            <header>
+                <div style="height: var(--header-height); box-shadow: 2px 1px 5px #eee; background:#fff">
+                </div>
+            </header>
+            <div class="main" style="height: calc(100% - var(--header-height) - 30px); ">
+
+                    {% block content %}{% endblock %}
+
+            </div>
+            </div>
+        </div>
+
+
+
+
+<script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+<script>
+    define("DynHighlightRules", [], function(require, exports, module) {
+        "use strict";
+
+        var oop = require("ace/lib/oop");
+        var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
+
+        var DynHighlightRules = function() {
+            var keywordMapper = this.createKeywordMapper({
+                "keyword": "IF ELSE IN BETWEEN LIKE IS NOT AND OR INDEX",
+                "constant.language": "TRUE FALSE NULL",
+                "keyword.operator": "lower upper trim replace length substring to_number to_str pnn_ci"
+            }, "text", true, " ");
+
+            this.$rules = {
+                "start" : [
+                    {
+                        token: "string",
+                        start: '"',
+                        end: '"',
+                        next: [{ token : "constant.language.escape.lsl", regex : /\\[tn"\\]/}]
+                    },
+                    {token : "invalid", regex: "\\.{2,}"},
+                    {token : "keyword.operator", regex: /\W[\-+%=<>*]\W|\*\*|[~:,\.&$]|->*?|=>/},
+                    {token : "constant.numeric", regex: "[+-]?\\d+(\.\d*)?\\b"},
+                    {token : keywordMapper, regex : "\\b\\w+\\b"},
+                    {caseInsensitive: true}
+                ]
+            };
+            this.normalizeRules();
+        };
+
+        oop.inherits(DynHighlightRules, TextHighlightRules);
+
+        exports.DynHighlightRules = DynHighlightRules;
+
+    });
+</script>
+<script>
+    EXIT_VOILE_CALLBACK = [];
+    $("#voile").click((e)=>{
+        if ($("#voile").hasClass("lock")) return;
+       if(e.target == e.currentTarget){
+            EXIT_VOILE_CALLBACK.forEach((func)=>{
+                if (typeof func === "function") {func()}
+            })
+            $("#voile").addClass("hidden");
+       }
+    });
+
+    $(".hide-scroll").scroll((e)=>{
+        let marge = 20;
+        let target = e.currentTarget;
+        let blurs = $(target.parentNode).find(".blur-hide-scroll")
+        if (target.scrollTop<=marge){
+            $(blurs.get(0)).hide();
+        }else{
+            $(blurs.get(0)).show();
+        }
+        if (target.scrollTop+$(target).height()>= target.scrollHeight - marge){
+            $(blurs.get(1)).hide();
+        }else{
+            $(blurs.get(1)).show();
+        }
+    })
+
+    $(".cross").click((e)=>{
+        if ($($(e.currentTarget).attr("data-name")).hasClass("lock")) return;
+        $($(e.currentTarget).attr("data-name")).addClass("hidden");
+        e.stopPropagation();
+        EXIT_VOILE_CALLBACK.forEach((func)=>{
+            if (typeof func === "function") {func()}
+        })
+    });
+    {% if error %}
+        new KBNotificator().notify({"title": "Erreur", message:'{{ error  }}' }, "e", 5)
+    {% endif %}
+    function check_process_running_state(){
+         console.log("checking step");
+         ajaxKB({
+            "url":"/check-process-state",
+            "method": "POST"
+        }).then(res => {
+            res = JSON.parse(res);
+            if (res.state) setTimeout(check_process_running_state, 10000);
+            else{
+                new KBNotificator().notify({"title": "Terminé", message:"Le process vient de se terminer"}, "i", 5);
+                $("#push-arrow").removeClass("push-arrow-anim");
+                $("#start-process svg").toggleClass("hidden");
+                $("#resume-process").removeClass("hidden");
+            }
+        }).catch((e)=>{
+            console.error(e);
+            new KBNotificator().notify({"title": "Erreur", message:"Une erreur s'est produite lors du checking de process" }, "e", 5)
+        })
+    }
+    {% if server_is_running %}
+        setTimeout(check_process_running_state, 10000);
+    {% endif %}
+
+    function copyCmd(elem, attr=null, suffix="kb-pushSMS::") {
+
+        let clipboard_value = []
+        if (elem instanceof Element){
+           elem = [elem]
+        }
+        // list
+        elem.forEach((el)=>{
+            if (attr===null){
+                clipboard_value.push(suffix+el.innerText);
+           }else{
+                clipboard_value.push(suffix+$(el).attr(attr));
+           }
+        });
+        clipboard_value = clipboard_value.join("\t");
+        console.log(clipboard_value);
+      var copyText = document.createElement("input");
+      $(copyText).addClass("hidden");
+      $("body").append(copyText);
+      copyText.value = (clipboard_value) || "";
+
+      /* Select the text field */
+      copyText.select();
+      copyText.setSelectionRange(0, 99999); /* For mobile devices */
+
+       /* Copy the text inside the text field */
+      navigator.clipboard.writeText(copyText.value);
+      copyText.remove();
+      elem.forEach((el)=>{
+          let span = document.createElement("span")
+          $(span).addClass("notif-copy").html("copié");
+          $(el).append(span);
+          setTimeout(()=>{span.remove()}, 1000)
+      });
+    }
+    var ctrlDown = false;
+    $(document).ready(function() {
+
+        var    ctrlKey = 17,
+            cmdKey = 91,
+            vKey = 86,
+            cKey = 67,
+            delKey = 46;
+        var kb_suffix="kb-pushSMS::";
+
+        $(document).keydown(function(e) {
+            if (e.keyCode == ctrlKey || e.keyCode == cmdKey) ctrlDown = true;
+        }).keyup(function(e) {
+            if (e.keyCode == ctrlKey || e.keyCode == cmdKey) ctrlDown = false;
+        });
+
+        $(document).keydown(function(e) {
+            // Copy
+            if (ctrlDown && (e.keyCode == cKey)){
+                if ($(".cmd-click").get(0)){
+                    copyCmd(document.querySelectorAll(".cmd-click"), $(".cmd-click").attr("data-cmd-copy"))
+                }
+            }
+            // Paste
+            if (ctrlDown && (e.keyCode == vKey)){
+                console.log("paste");
+                get_clipboard_value((text)=>{
+                    console.log(text);
+                    if (text.split(kb_suffix).length>1) parse_clipboard_value(text);
+                });
+            }
+            // Delete
+            if (e.keyCode == delKey){
+                if ($(".cmd-click").get(0)){
+                    console.log("going to del");
+                    document.querySelectorAll(".cmd-click").forEach(el=>{
+                        delete_function(el);
+                    });
+                }
+            }
+
+        });
+    });;
+
+
+    function where_is_click_on(event, elm){
+        let target = event.target;
+        while (!$(target).is(elm) && target !== null && target.tagName !== "HTML"){
+            target = target.parentNode;
+        }
+        if ($(target).is(elm)) return true;
+        return false;
+
+    }
+
+    function get_clipboard_value(callback){
+        navigator.clipboard.readText()
+          .then(text => {
+            if (typeof callback=="function") callback(text);
+          })
+          .catch(err => {
+            console.error('Failed to read clipboard contents: ', err);
+            new KBNotificator().notify({"title": "Erreur", message:"Impossible de lire le press-papier" }, "e", 5)
+          });
+    }
+
+    $(".btn-orange").click((e)=>{
+        console.log($(e.currentTarget).attr("data-disabled"));
+        if ($(e.currentTarget).attr("data-disabled")=="disabled") e.preventDefault();
+    })
+
+</script>
+
+
+<!--<div style="width: 100%; height: 100%; position: absolute; left:0; top:0; " id="editor"></div> -->
+
+</body>
+</html>
